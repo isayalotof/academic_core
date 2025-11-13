@@ -1,0 +1,376 @@
+syntax = "proto3";
+
+package classroom;
+
+// ============ СЕРВИС ============
+
+service ClassroomService {
+    // CRUD - Classrooms
+    rpc CreateClassroom(CreateClassroomRequest) returns (ClassroomResponse);
+    rpc GetClassroom(GetClassroomRequest) returns (ClassroomResponse);
+    rpc UpdateClassroom(UpdateClassroomRequest) returns (ClassroomResponse);
+    rpc DeleteClassroom(DeleteClassroomRequest) returns (DeleteResponse);
+    rpc ListClassrooms(ListClassroomsRequest) returns (ListClassroomsResponse);
+    
+    // CRUD - Buildings
+    rpc CreateBuilding(CreateBuildingRequest) returns (BuildingResponse);
+    rpc GetBuilding(GetBuildingRequest) returns (BuildingResponse);
+    rpc UpdateBuilding(UpdateBuildingRequest) returns (BuildingResponse);
+    rpc DeleteBuilding(DeleteBuildingRequest) returns (DeleteResponse);
+    rpc ListBuildings(ListBuildingsRequest) returns (BuildingsResponse);
+    
+    // Поиск свободных
+    rpc FindAvailableClassrooms(FindAvailableRequest) returns (AvailableClassroomsResponse);
+    rpc CheckAvailability(CheckAvailabilityRequest) returns (AvailabilityResponse);
+    
+    // Бронирование
+    rpc ReserveClassroom(ReserveRequest) returns (ReserveResponse);
+    rpc CancelReservation(CancelReservationRequest) returns (CancelResponse);
+    rpc BulkReserve(BulkReserveRequest) returns (BulkReserveResponse);
+    
+    // Расписание
+    rpc GetSchedule(GetScheduleRequest) returns (ScheduleResponse);
+    
+    // Расстояния
+    rpc CalculateDistance(DistanceRequest) returns (DistanceResponse);
+    
+    // Статистика
+    rpc GetStatistics(StatisticsRequest) returns (StatisticsResponse);
+    
+    // Здоровье
+    rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// ============ МОДЕЛИ ============
+
+message Classroom {
+    int32 id = 1;
+    string name = 2;
+    string code = 3;
+    
+    int32 building_id = 4;
+    string building_name = 5;
+    int32 floor = 6;
+    string wing = 7;
+    
+    int32 capacity = 8;
+    float actual_area = 9;
+    string classroom_type = 10;
+    
+    // Оборудование
+    bool has_projector = 11;
+    bool has_whiteboard = 12;
+    bool has_blackboard = 13;
+    bool has_markers = 14;
+    bool has_chalk = 15;
+    bool has_computers = 16;
+    int32 computers_count = 17;
+    bool has_audio_system = 18;
+    bool has_video_recording = 19;
+    bool has_air_conditioning = 20;
+    
+    bool is_accessible = 21;
+    bool has_windows = 22;
+    bool is_active = 23;
+    
+    string description = 24;
+    string notes = 25;
+    
+    string created_at = 26;
+    string updated_at = 27;
+}
+
+message Building {
+    int32 id = 1;
+    string name = 2;
+    string short_name = 3;
+    string code = 4;
+    string address = 5;
+    string campus = 6;
+    double latitude = 7;
+    double longitude = 8;
+    int32 total_floors = 9;
+    bool has_elevator = 10;
+    string created_at = 11;
+    string updated_at = 12;
+}
+
+// ============ ЗАПРОСЫ ============
+
+message CreateClassroomRequest {
+    string name = 1;
+    string code = 2;
+    int32 building_id = 3;
+    int32 floor = 4;
+    string wing = 5;
+    int32 capacity = 6;
+    float actual_area = 7;
+    string classroom_type = 8;
+    
+    bool has_projector = 9;
+    bool has_whiteboard = 10;
+    bool has_blackboard = 11;
+    bool has_markers = 12;
+    bool has_chalk = 13;
+    bool has_computers = 14;
+    int32 computers_count = 15;
+    bool has_audio_system = 16;
+    bool has_video_recording = 17;
+    bool has_air_conditioning = 18;
+    
+    bool is_accessible = 19;
+    bool has_windows = 20;
+    string description = 21;
+    int32 created_by = 22;
+}
+
+message GetClassroomRequest {
+    oneof identifier {
+        int32 id = 1;
+        string code = 2;
+    }
+    bool include_schedule = 3;
+}
+
+message UpdateClassroomRequest {
+    int32 id = 1;
+    map<string, string> updates = 2;
+    int32 updated_by = 3;
+}
+
+message DeleteClassroomRequest {
+    int32 id = 1;
+    bool hard_delete = 2;
+}
+
+message ListClassroomsRequest {
+    int32 page = 1;
+    int32 page_size = 2;
+    
+    repeated int32 building_ids = 3;
+    repeated string classroom_types = 4;
+    int32 min_capacity = 5;
+    int32 max_capacity = 6;
+    
+    string search_query = 7;
+    bool only_active = 8;
+    
+    string sort_by = 9;
+    string sort_order = 10;
+}
+
+message FindAvailableRequest {
+    int32 day_of_week = 1;
+    int32 time_slot = 2;
+    int32 min_capacity = 3;
+    
+    bool need_projector = 4;
+    bool need_whiteboard = 5;
+    bool need_computers = 6;
+    
+    repeated int32 building_ids = 7;
+    repeated string classroom_types = 8;
+    
+    string sort_by = 9;
+}
+
+message CheckAvailabilityRequest {
+    int32 classroom_id = 1;
+    int32 day_of_week = 2;
+    int32 time_slot = 3;
+}
+
+message ReserveRequest {
+    int32 classroom_id = 1;
+    int32 day_of_week = 2;
+    int32 time_slot = 3;
+    int32 week = 4;  // Номер недели в семестре (1-16)
+    
+    int32 schedule_id = 5;
+    string discipline_name = 6;
+    string teacher_name = 7;
+    string group_name = 8;
+    string lesson_type = 9;
+}
+
+message BulkReserveRequest {
+    repeated ReserveRequest reservations = 1;
+    bool validate_only = 2;
+}
+
+message CancelReservationRequest {
+    oneof identifier {
+        int32 schedule_record_id = 1;
+        TimeSlot slot = 2;
+    }
+}
+
+message TimeSlot {
+    int32 classroom_id = 1;
+    int32 day_of_week = 2;
+    int32 time_slot = 3;
+}
+
+message GetScheduleRequest {
+    int32 classroom_id = 1;
+    repeated int32 days_of_week = 2;
+    int32 week = 3;  // Номер недели в семестре (1-16), 0 = все недели
+}
+
+message DistanceRequest {
+    int32 from_classroom_id = 1;
+    int32 to_classroom_id = 2;
+}
+
+message StatisticsRequest {
+    oneof scope {
+        int32 classroom_id = 1;
+        int32 building_id = 2;
+        bool all = 3;
+    }
+}
+
+message HealthCheckRequest {}
+
+// ============ BUILDINGS ЗАПРОСЫ ============
+
+message CreateBuildingRequest {
+    string name = 1;
+    string short_name = 2;
+    string code = 3;
+    string address = 4;
+    string campus = 5;
+    double latitude = 6;
+    double longitude = 7;
+    int32 total_floors = 8;
+    bool has_elevator = 9;
+}
+
+message GetBuildingRequest {
+    int32 building_id = 1;
+}
+
+message UpdateBuildingRequest {
+    int32 building_id = 1;
+    string name = 2;
+    string short_name = 3;
+    string code = 4;
+    string address = 5;
+    string campus = 6;
+    double latitude = 7;
+    double longitude = 8;
+    int32 total_floors = 9;
+    bool has_elevator = 10;
+}
+
+message DeleteBuildingRequest {
+    int32 building_id = 1;
+}
+
+message ListBuildingsRequest {}
+
+// ============ ОТВЕТЫ ============
+
+message ClassroomResponse {
+    Classroom classroom = 1;
+    string message = 2;
+}
+
+message ListClassroomsResponse {
+    repeated Classroom classrooms = 1;
+    int32 total_count = 2;
+    int32 page = 3;
+    int32 page_size = 4;
+}
+
+message AvailableClassroomsResponse {
+    repeated AvailableClassroom classrooms = 1;
+}
+
+message AvailableClassroom {
+    Classroom classroom = 1;
+    float utilization_score = 2;
+    bool fully_equipped = 3;
+}
+
+message AvailabilityResponse {
+    bool is_available = 1;
+    string reason = 2;
+}
+
+message ReserveResponse {
+    bool success = 1;
+    int32 schedule_id = 2;
+    string message = 3;
+}
+
+message BulkReserveResponse {
+    int32 successful_count = 1;
+    int32 failed_count = 2;
+    repeated ReservationResult results = 3;
+}
+
+message ReservationResult {
+    int32 classroom_id = 1;
+    bool success = 2;
+    string error_message = 3;
+}
+
+message DeleteResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message CancelResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message ScheduleResponse {
+    int32 classroom_id = 1;
+    repeated ScheduleSlot slots = 2;
+    int32 total_occupied = 3;
+    float utilization_percentage = 4;
+}
+
+message ScheduleSlot {
+    int32 day_of_week = 1;
+    int32 time_slot = 2;
+    int32 week = 3;  // Номер недели в семестре (1-16)
+    string discipline_name = 4;
+    string teacher_name = 5;
+    string group_name = 6;
+    string lesson_type = 7;
+}
+
+message DistanceResponse {
+    int32 distance_meters = 1;
+    int32 walking_time_seconds = 2;
+    bool requires_building_change = 3;
+}
+
+message StatisticsResponse {
+    int32 total_classrooms = 1;
+    int32 total_capacity = 2;
+    float average_utilization = 3;
+    map<string, int32> by_type = 4;
+}
+
+message HealthCheckResponse {
+    string status = 1;
+    string version = 2;
+}
+
+// ============ BUILDINGS ОТВЕТЫ ============
+
+message BuildingResponse {
+    Building building = 1;
+    string message = 2;
+}
+
+message BuildingsResponse {
+    repeated Building buildings = 1;
+    int32 total_count = 2;
+    string message = 3;
+}
+

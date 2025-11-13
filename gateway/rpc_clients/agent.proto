@@ -1,0 +1,232 @@
+syntax = "proto3";
+
+package agent;
+
+// ============ СЕРВИС ============
+
+service AgentService {
+    // Генерация расписания
+    rpc GenerateSchedule(GenerateRequest) returns (GenerateResponse);
+    rpc GetGenerationStatus(StatusRequest) returns (StatusResponse);
+    rpc GetGenerationHistory(HistoryRequest) returns (HistoryResponse);
+    rpc StopGeneration(StopRequest) returns (StopResponse);
+    
+    // Управление нагрузкой
+    rpc GetCourseLoads(GetCourseLoadsRequest) returns (CourseLoadsResponse);
+    
+    // Расписание
+    rpc GetSchedule(GetScheduleRequest) returns (ScheduleResponse);
+    rpc GetScheduleForGroup(GroupScheduleRequest) returns (ScheduleResponse);
+    rpc GetScheduleForTeacher(TeacherScheduleRequest) returns (ScheduleResponse);
+    
+    // Аналитика
+    rpc AnalyzeSchedule(AnalyzeRequest) returns (AnalysisResponse);
+    rpc GetMetrics(MetricsRequest) returns (MetricsResponse);
+    
+    // Health check
+    rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// ============ МОДЕЛИ ============
+
+message CourseLoad {
+    int32 id = 1;
+    string discipline_name = 2;
+    string discipline_code = 3;
+    
+    int32 teacher_id = 4;
+    string teacher_name = 5;
+    int32 teacher_priority = 6;
+    
+    int32 group_id = 7;
+    string group_name = 8;
+    int32 group_size = 9;
+    
+    string lesson_type = 10;
+    int32 hours_per_semester = 11;
+    int32 lessons_per_week = 12;
+    
+    int32 semester = 13;
+    string academic_year = 14;
+}
+
+message Schedule {
+    int32 id = 1;
+    int32 generation_id = 2;
+    
+    int32 day_of_week = 3;              // 1-6 (Пн-Сб)
+    int32 time_slot = 4;                 // 1-6 (пара)
+    string week_type = 5;                // "odd", "even", "both"
+    
+    int32 discipline_id = 6;
+    string discipline_name = 7;
+    string discipline_code = 8;
+    
+    int32 teacher_id = 9;
+    string teacher_name = 10;
+    
+    int32 group_id = 11;
+    string group_name = 12;
+    
+    int32 classroom_id = 13;
+    string classroom_code = 14;
+    
+    string lesson_type = 15;
+    bool is_active = 16;
+}
+
+message Conflict {
+    int32 schedule_id_1 = 1;
+    int32 schedule_id_2 = 2;
+    string conflict_type = 3;            // "teacher", "group", "classroom"
+    string description = 4;
+}
+
+// ============ ГЕНЕРАЦИЯ ============
+
+message GenerateRequest {
+    int32 semester = 1;
+    int32 max_iterations = 2;
+    bool skip_stage1 = 3;
+    bool skip_stage2 = 4;
+    int32 created_by = 5;
+}
+
+message GenerateResponse {
+    bool success = 1;
+    string job_id = 2;
+    string message = 3;
+    string error = 4;
+}
+
+message StatusRequest {
+    string job_id = 1;
+}
+
+message StatusResponse {
+    bool found = 1;
+    string job_id = 2;
+    string status = 3;                   // "pending", "running", "completed", "failed"
+    string stage = 4;                    // "stage1", "stage2", "improving"
+    int32 current_iteration = 5;
+    int32 max_iterations = 6;
+    float current_score = 7;
+    float best_score = 8;
+    float progress_percentage = 9;
+    string last_reasoning = 10;
+}
+
+message HistoryRequest {
+    int32 limit = 1;
+    int32 offset = 2;
+}
+
+message HistoryResponse {
+    repeated GenerationHistoryItem items = 1;
+    int32 total_count = 2;
+}
+
+message GenerationHistoryItem {
+    string job_id = 1;
+    int32 semester = 2;
+    string status = 3;
+    float final_score = 4;
+    int32 total_iterations = 5;
+    string created_at = 6;
+    int32 created_by = 7;
+}
+
+message StopRequest {
+    string job_id = 1;
+}
+
+message StopResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+// ============ НАГРУЗКА ============
+
+message GetCourseLoadsRequest {
+    int32 semester = 1;
+    repeated int32 teacher_ids = 2;
+    repeated int32 group_ids = 3;
+}
+
+message CourseLoadsResponse {
+    repeated CourseLoad course_loads = 1;
+    int32 total_count = 2;
+}
+
+// ============ РАСПИСАНИЕ ============
+
+message GetScheduleRequest {
+    int32 generation_id = 1;                   // Конкретная генерация
+    bool only_active = 2;                      // Только активное
+}
+
+message GroupScheduleRequest {
+    int32 group_id = 1;
+    int32 day_of_week = 2;                     // optional
+}
+
+message TeacherScheduleRequest {
+    int32 teacher_id = 1;
+    int32 day_of_week = 2;                     // optional
+}
+
+message ScheduleResponse {
+    repeated Schedule schedules = 1;
+    int32 total_count = 2;
+}
+
+// ============ АНАЛИТИКА ============
+
+message AnalyzeRequest {
+    oneof target {
+        int32 generation_id = 1;
+        bool current_active = 2;
+    }
+}
+
+message AnalysisResponse {
+    // Конфликты
+    repeated Conflict conflicts = 1;
+    
+    // Метрики
+    int32 total_lessons = 2;
+    int32 preference_violations = 3;
+    int32 isolated_lessons = 4;
+    int32 gaps_count = 5;
+    
+    // Распределение
+    map<string, int32> lessons_by_day = 6;
+    map<string, int32> lessons_by_type = 7;
+}
+
+message MetricsRequest {
+    int32 generation_id = 1;
+}
+
+message MetricsResponse {
+    float fitness_score = 1;
+    float preference_score = 2;
+    float distribution_score = 3;
+    float conflict_score = 4;
+    
+    int32 total_conflicts = 5;
+    int32 preference_violations = 6;
+    
+    map<string, float> detailed_metrics = 7;
+}
+
+// ============ HEALTH CHECK ============
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+    string status = 1;
+    string version = 2;
+    string timestamp = 3;
+}
+

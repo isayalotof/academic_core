@@ -1,0 +1,3266 @@
+openapi: 3.0.3
+info:
+  title: University Schedule Gateway API
+  description: |
+    API Gateway для системы автоматического составления расписания университета.
+    
+    ## Возможности
+    
+    - 🔐 Аутентификация и авторизация (JWT)
+    - 👥 Управление пользователями, преподавателями, студентами, группами
+    - 🏫 Управление аудиториями и зданиями
+    - 📅 Генерация расписания с помощью LLM-агента (GigaChat)
+    - ⭐ Предпочтения преподавателей по временным слотам
+    - 📊 Просмотр и экспорт расписания (Excel, PDF, iCal)
+    - 📚 Управление учебной нагрузкой
+    
+    ## Архитектура
+    
+    Система построена на микросервисной архитектуре:
+    - **ms-auth**: Аутентификация и авторизация
+    - **ms-core**: Базовые сущности (преподаватели, группы, студенты, нагрузка)
+    - **ms-audit**: Управление аудиториями
+    - **ms-agent**: LLM-агент для оптимизации расписания
+    - **ms-schedule**: Управление расписанием и экспорт
+    
+    ## Аутентификация
+    
+    Большинство эндпоинтов требуют JWT токен в заголовке:
+    ```
+    Authorization: Bearer <access_token>
+    ```
+    
+    Получить токен можно через `/api/auth/login` или `/api/auth/register`.
+  version: 1.0.0
+  contact:
+    name: University Schedule Team
+    email: support@university.edu
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8000
+    description: Локальный сервер разработки
+  - url: https://api.university.edu
+    description: Production сервер
+
+tags:
+  - name: auth
+    description: Аутентификация и авторизация
+  - name: classrooms
+    description: Управление аудиториями
+  - name: agent
+    description: LLM-агент генерации расписания
+  - name: Schedule
+    description: Просмотр и экспорт расписания
+  - name: teachers
+    description: Управление преподавателями
+  - name: groups
+    description: Управление группами
+  - name: students
+    description: Управление студентами
+  - name: course-loads
+    description: Управление учебной нагрузкой
+  - name: preferences
+    description: Предпочтения преподавателей
+  - name: system
+    description: Системные эндпоинты
+
+paths:
+  /health:
+    get:
+      tags:
+        - system
+      summary: Проверка здоровья сервиса
+      description: Возвращает статус всех микросервисов
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Статус сервисов
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  version:
+                    type: string
+                    example: "1.0.0"
+                  environment:
+                    type: string
+                    example: production
+                  services:
+                    type: object
+                    properties:
+                      ms-auth:
+                        type: string
+                        example: healthy
+                      ms-audit:
+                        type: string
+                        example: healthy
+                      ms-agent:
+                        type: string
+                        example: healthy
+                      ms-core:
+                        type: string
+                        example: healthy
+                      ms-schedule:
+                        type: string
+                        example: healthy
+
+  /:
+    get:
+      tags:
+        - system
+      summary: Информация о сервисе
+      operationId: root
+      responses:
+        '200':
+          description: Информация о gateway
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service:
+                    type: string
+                    example: University Schedule Gateway
+                  version:
+                    type: string
+                    example: "1.0.0"
+                  docs:
+                    type: string
+                    example: /docs
+                  health:
+                    type: string
+                    example: /health
+
+  /api/auth/register:
+    post:
+      tags:
+        - auth
+      summary: Регистрация нового пользователя
+      description: |
+        Создаёт нового пользователя и возвращает JWT токены.
+        
+        Доступно всем (без авторизации).
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            examples:
+              admin:
+                summary: Регистрация администратора
+                value:
+                  username: admin
+                  email: admin@university.edu
+                  password: Admin123!
+                  full_name: System Administrator
+                  primary_role: admin
+              teacher:
+                summary: Регистрация преподавателя
+                value:
+                  username: teacher1
+                  email: teacher1@university.edu
+                  password: Teacher123!
+                  full_name: Иванов Иван Иванович
+                  primary_role: teacher
+                  teacher_id: 1
+                  phone: "+7 (123) 456-78-90"
+              student:
+                summary: Регистрация студента
+                value:
+                  username: student1
+                  email: student1@university.edu
+                  password: Student123!
+                  full_name: Петров Петр Петрович
+                  primary_role: student
+                  student_group_id: 1
+      responses:
+        '201':
+          description: Пользователь успешно зарегистрирован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Ошибка валидации или пользователь уже существует
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/login:
+    post:
+      tags:
+        - auth
+      summary: Вход в систему
+      description: Аутентификация пользователя и получение JWT токенов
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              username: admin
+              password: Admin123!
+      responses:
+        '200':
+          description: Успешный вход
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Неверные учётные данные
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/refresh:
+    post:
+      tags:
+        - auth
+      summary: Обновить access token
+      description: Получить новый access token используя refresh token
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refresh_token
+              properties:
+                refresh_token:
+                  type: string
+                  example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+      responses:
+        '200':
+          description: Токены обновлены
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  tokens:
+                    $ref: '#/components/schemas/TokenPair'
+                  message:
+                    type: string
+        '401':
+          description: Невалидный refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/logout:
+    post:
+      tags:
+        - auth
+      summary: Выход из системы
+      description: Отозвать refresh token (требуется access token)
+      operationId: logout
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Успешный выход
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Logged out successfully
+        '401':
+          description: Невалидный токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/me:
+    get:
+      tags:
+        - auth
+      summary: Получить текущего пользователя
+      description: Возвращает информацию о текущем аутентифицированном пользователе
+      operationId: getCurrentUser
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Информация о пользователе
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: Невалидный токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/validate:
+    post:
+      tags:
+        - auth
+      summary: Валидировать токен
+      description: Проверить валидность access token
+      operationId: validateToken
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Результат валидации
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                    example: true
+                  user_id:
+                    type: integer
+                    example: 1
+                  username:
+                    type: string
+                    example: admin
+                  role:
+                    type: string
+                    example: admin
+                  roles:
+                    type: array
+                    items:
+                      type: string
+                    example: ["admin", "staff"]
+                  message:
+                    type: string
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT токен полученный через /api/auth/login или /api/auth/register
+
+  schemas:
+    RegisterRequest:
+      type: object
+      required:
+        - username
+        - email
+        - password
+        - full_name
+        - primary_role
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+          example: teacher1
+        email:
+          type: string
+          format: email
+          example: teacher1@university.edu
+        password:
+          type: string
+          minLength: 8
+          example: Teacher123!
+        full_name:
+          type: string
+          minLength: 2
+          maxLength: 200
+          example: Иванов Иван Иванович
+        phone:
+          type: string
+          nullable: true
+          example: "+7 (123) 456-78-90"
+        primary_role:
+          type: string
+          enum: [student, teacher, staff, admin]
+          example: teacher
+        teacher_id:
+          type: integer
+          nullable: true
+          description: ID преподавателя (если primary_role = teacher)
+          example: 1
+        student_group_id:
+          type: integer
+          nullable: true
+          description: ID группы (если primary_role = student)
+          example: 1
+
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          example: admin
+        password:
+          type: string
+          example: Admin123!
+
+    TokenPair:
+      type: object
+      properties:
+        access_token:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        refresh_token:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        expires_in:
+          type: integer
+          description: Время жизни access token в секундах
+          example: 900
+        token_type:
+          type: string
+          example: Bearer
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        username:
+          type: string
+          example: teacher1
+        email:
+          type: string
+          example: teacher1@university.edu
+        full_name:
+          type: string
+          example: Иванов Иван Иванович
+        phone:
+          type: string
+          nullable: true
+          example: "+7 (123) 456-78-90"
+        role:
+          type: string
+          description: Основная роль
+          example: teacher
+        roles:
+          type: array
+          items:
+            type: string
+          example: ["teacher", "staff"]
+        is_active:
+          type: boolean
+          example: true
+        is_verified:
+          type: boolean
+          example: false
+
+    AuthResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        user:
+          $ref: '#/components/schemas/User'
+        tokens:
+          $ref: '#/components/schemas/TokenPair'
+        message:
+          type: string
+          example: Registration successful
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: Invalid credentials
+        detail:
+          type: string
+          nullable: true
+          example: Username or password is incorrect
+
+    CreateClassroomRequest:
+      type: object
+      required:
+        - name
+        - code
+        - building_id
+        - floor
+        - capacity
+        - classroom_type
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+          example: "Аудитория 101"
+        code:
+          type: string
+          minLength: 1
+          maxLength: 20
+          example: "101"
+        building_id:
+          type: integer
+          minimum: 1
+          example: 1
+        floor:
+          type: integer
+          example: 1
+        wing:
+          type: string
+          nullable: true
+          maxLength: 50
+        capacity:
+          type: integer
+          minimum: 1
+          example: 30
+        actual_area:
+          type: number
+          nullable: true
+          minimum: 0
+          example: 50.5
+        classroom_type:
+          type: string
+          example: "lecture"
+        has_projector:
+          type: boolean
+          default: false
+        has_whiteboard:
+          type: boolean
+          default: false
+        has_computers:
+          type: boolean
+          default: false
+        computers_count:
+          type: integer
+          default: 0
+        is_accessible:
+          type: boolean
+          default: true
+        description:
+          type: string
+          nullable: true
+
+    UpdateClassroomRequest:
+      type: object
+      properties:
+        updates:
+          type: object
+          additionalProperties: true
+          example:
+            capacity: 35
+            has_projector: true
+
+    ReserveClassroomRequest:
+      type: object
+      required:
+        - classroom_id
+        - day_of_week
+        - time_slot
+        - discipline_name
+      properties:
+        classroom_id:
+          type: integer
+          minimum: 1
+        day_of_week:
+          type: integer
+          minimum: 1
+          maximum: 6
+          example: 2
+        time_slot:
+          type: integer
+          minimum: 1
+          maximum: 6
+          example: 3
+        schedule_id:
+          type: integer
+          nullable: true
+        discipline_name:
+          type: string
+          example: "Математика"
+        teacher_name:
+          type: string
+          nullable: true
+        group_name:
+          type: string
+          nullable: true
+        lesson_type:
+          type: string
+          nullable: true
+
+    Classroom:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: "Аудитория 101"
+        code:
+          type: string
+          example: "101"
+        building_id:
+          type: integer
+          example: 1
+        building_name:
+          type: string
+          example: "Главный корпус"
+        floor:
+          type: integer
+          example: 1
+        capacity:
+          type: integer
+          example: 30
+        classroom_type:
+          type: string
+          example: "lecture"
+        has_projector:
+          type: boolean
+          example: true
+        has_computers:
+          type: boolean
+          example: false
+        is_accessible:
+          type: boolean
+          example: true
+
+    GenerateScheduleRequest:
+      type: object
+      required:
+        - semester
+      properties:
+        semester:
+          type: integer
+          minimum: 1
+          maximum: 2
+          example: 1
+          description: Номер семестра (1 или 2)
+        max_iterations:
+          type: integer
+          minimum: 1
+          maximum: 500
+          default: 100
+          description: Максимум итераций оптимизации
+        skip_stage1:
+          type: boolean
+          default: false
+          description: Пропустить Stage 1 (использовать существующее расписание)
+        skip_stage2:
+          type: boolean
+          default: false
+          description: Пропустить Stage 2 (без аудиторий)
+
+    GenerationStatus:
+      type: object
+      properties:
+        job_id:
+          type: string
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        status:
+          type: string
+          enum: [running, completed, failed, stopped]
+          example: "running"
+        stage:
+          type: integer
+          example: 1
+        current_iteration:
+          type: integer
+          example: 45
+        max_iterations:
+          type: integer
+          example: 100
+        current_score:
+          type: integer
+          example: 850
+        best_score:
+          type: integer
+          example: 920
+        progress_percentage:
+          type: number
+          format: float
+          example: 45.0
+        last_reasoning:
+          type: string
+          nullable: true
+          example: "Swapped lessons to reduce gaps"
+
+    ScheduleItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        course_load_id:
+          type: integer
+        day_of_week:
+          type: integer
+          minimum: 1
+          maximum: 6
+        time_slot:
+          type: integer
+          minimum: 1
+          maximum: 6
+        classroom_id:
+          type: integer
+          nullable: true
+        classroom_name:
+          type: string
+          nullable: true
+        teacher_id:
+          type: integer
+        teacher_name:
+          type: string
+        group_id:
+          type: integer
+        group_name:
+          type: string
+        discipline_name:
+          type: string
+        lesson_type:
+          type: string
+
+    Lesson:
+      type: object
+      properties:
+        id:
+          type: integer
+        day_of_week:
+          type: integer
+        time_slot:
+          type: integer
+        discipline_name:
+          type: string
+        teacher_name:
+          type: string
+        group_name:
+          type: string
+        classroom_name:
+          type: string
+          nullable: true
+        lesson_type:
+          type: string
+
+    CreateTeacherRequest:
+      type: object
+      required:
+        - full_name
+        - employment_type
+      properties:
+        full_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: "Иванов Иван Иванович"
+        first_name:
+          type: string
+          nullable: true
+          maxLength: 100
+        last_name:
+          type: string
+          nullable: true
+          maxLength: 100
+        middle_name:
+          type: string
+          nullable: true
+          maxLength: 100
+        email:
+          type: string
+          format: email
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+          maxLength: 20
+        employment_type:
+          type: string
+          enum: [external, graduate, internal, staff]
+          example: "external"
+        position:
+          type: string
+          nullable: true
+          example: "Профессор"
+        academic_degree:
+          type: string
+          nullable: true
+          example: "Доктор наук"
+        department:
+          type: string
+          nullable: true
+          example: "Кафедра ПИвКД"
+        hire_date:
+          type: string
+          format: date
+          nullable: true
+
+    UpdateTeacherRequest:
+      type: object
+      properties:
+        full_name:
+          type: string
+          nullable: true
+        email:
+          type: string
+          format: email
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        employment_type:
+          type: string
+          nullable: true
+          enum: [external, graduate, internal, staff]
+        position:
+          type: string
+          nullable: true
+        department:
+          type: string
+          nullable: true
+        is_active:
+          type: boolean
+          nullable: true
+
+    Teacher:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        full_name:
+          type: string
+          example: "Иванов Иван Иванович"
+        email:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        employment_type:
+          type: string
+          example: "external"
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 4
+          example: 1
+          description: Автоматически вычисляется из employment_type
+        position:
+          type: string
+          nullable: true
+        department:
+          type: string
+          nullable: true
+        is_active:
+          type: boolean
+          example: true
+
+    TeacherPreference:
+      type: object
+      properties:
+        id:
+          type: integer
+        teacher_id:
+          type: integer
+        day_of_week:
+          type: integer
+          minimum: 1
+          maximum: 6
+        time_slot:
+          type: integer
+          minimum: 1
+          maximum: 6
+        is_preferred:
+          type: boolean
+          description: true = удобное время, false = неудобное время
+        preference_strength:
+          type: string
+          nullable: true
+          enum: [strong, medium, weak]
+        reason:
+          type: string
+          nullable: true
+
+    SetPreferencesRequest:
+      type: object
+      required:
+        - preferences
+      properties:
+        preferences:
+          type: array
+          items:
+            type: object
+            required:
+              - day_of_week
+              - time_slot
+              - is_preferred
+            properties:
+              day_of_week:
+                type: integer
+                minimum: 1
+                maximum: 6
+              time_slot:
+                type: integer
+                minimum: 1
+                maximum: 6
+              is_preferred:
+                type: boolean
+              preference_strength:
+                type: string
+                nullable: true
+              reason:
+                type: string
+                nullable: true
+        replace_existing:
+          type: boolean
+          default: false
+
+    CreateGroupRequest:
+      type: object
+      required:
+        - name
+        - year
+        - semester
+        - level
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+          example: "ПИвКД-41"
+        short_name:
+          type: string
+          nullable: true
+          maxLength: 20
+        year:
+          type: integer
+          minimum: 1
+          maximum: 6
+          example: 4
+        semester:
+          type: integer
+          minimum: 1
+          maximum: 2
+          example: 1
+        program_code:
+          type: string
+          nullable: true
+          example: "09.03.04"
+        program_name:
+          type: string
+          nullable: true
+          example: "Программная инженерия"
+        specialization:
+          type: string
+          nullable: true
+        level:
+          type: string
+          enum: [bachelor, master, phd]
+          example: "bachelor"
+        curator_teacher_id:
+          type: integer
+          nullable: true
+
+    UpdateGroupRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          nullable: true
+        year:
+          type: integer
+          nullable: true
+          minimum: 1
+          maximum: 6
+        level:
+          type: string
+          nullable: true
+          enum: [bachelor, master, phd]
+        is_active:
+          type: boolean
+          nullable: true
+
+    Group:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: "ПИвКД-41"
+        year:
+          type: integer
+          example: 4
+        semester:
+          type: integer
+          example: 1
+        size:
+          type: integer
+          example: 25
+        level:
+          type: string
+          example: "bachelor"
+        program_name:
+          type: string
+          nullable: true
+        is_active:
+          type: boolean
+          example: true
+
+    CreateStudentRequest:
+      type: object
+      required:
+        - full_name
+        - student_number
+        - group_id
+      properties:
+        full_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: "Петров Пётр Петрович"
+        first_name:
+          type: string
+          nullable: true
+        last_name:
+          type: string
+          nullable: true
+        student_number:
+          type: string
+          minLength: 1
+          maxLength: 50
+          example: "2024-123456"
+        group_id:
+          type: integer
+          minimum: 1
+        email:
+          type: string
+          format: email
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [active, academic_leave, expelled, graduated]
+          default: "active"
+
+    UpdateStudentRequest:
+      type: object
+      properties:
+        full_name:
+          type: string
+          nullable: true
+        student_number:
+          type: string
+          nullable: true
+        group_id:
+          type: integer
+          nullable: true
+        email:
+          type: string
+          format: email
+          nullable: true
+        status:
+          type: string
+          nullable: true
+          enum: [active, academic_leave, expelled, graduated]
+
+    Student:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        full_name:
+          type: string
+          example: "Петров Пётр Петрович"
+        student_number:
+          type: string
+          example: "2024-123456"
+        group_id:
+          type: integer
+          example: 1
+        group_name:
+          type: string
+          nullable: true
+          example: "ПИвКД-41"
+        email:
+          type: string
+          nullable: true
+        status:
+          type: string
+          example: "active"
+
+    CreateCourseLoadRequest:
+      type: object
+      required:
+        - teacher_id
+        - group_id
+        - discipline_id
+        - semester
+        - academic_year
+        - hours_per_semester
+      properties:
+        teacher_id:
+          type: integer
+          minimum: 1
+        group_id:
+          type: integer
+          minimum: 1
+        discipline_id:
+          type: integer
+          minimum: 1
+        semester:
+          type: integer
+          minimum: 1
+          maximum: 2
+        academic_year:
+          type: string
+          example: "2024/2025"
+        hours_per_semester:
+          type: integer
+          minimum: 1
+        lesson_type:
+          type: string
+          enum: [lecture, practice, lab, seminar]
+          default: "lecture"
+        classroom_requirements:
+          type: string
+          nullable: true
+
+    CourseLoad:
+      type: object
+      properties:
+        id:
+          type: integer
+        teacher_id:
+          type: integer
+        teacher_name:
+          type: string
+        group_id:
+          type: integer
+        group_name:
+          type: string
+        discipline_id:
+          type: integer
+        discipline_name:
+          type: string
+        semester:
+          type: integer
+        academic_year:
+          type: string
+        hours_per_semester:
+          type: integer
+        lessons_per_week:
+          type: integer
+        lesson_type:
+          type: string
+
+  /api/classrooms:
+    get:
+      tags:
+        - classrooms
+      summary: Список аудиторий
+      description: Получить список аудиторий с фильтрацией и пагинацией
+      operationId: listClassrooms
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Поисковый запрос
+        - name: building_ids
+          in: query
+          schema:
+            type: string
+          description: ID зданий через запятую
+        - name: classroom_types
+          in: query
+          schema:
+            type: string
+          description: Типы аудиторий через запятую
+        - name: min_capacity
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+        - name: max_capacity
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+        - name: sort_by
+          in: query
+          schema:
+            type: string
+            default: name
+        - name: sort_order
+          in: query
+          schema:
+            type: string
+            enum: [ASC, DESC]
+            default: ASC
+      responses:
+        '200':
+          description: Список аудиторий
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  classrooms:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Classroom'
+                  total_count:
+                    type: integer
+                    example: 150
+                  page:
+                    type: integer
+                    example: 1
+                  page_size:
+                    type: integer
+                    example: 20
+
+    post:
+      tags:
+        - classrooms
+      summary: Создать аудиторию
+      description: Создать новую аудиторию (требуется роль staff или admin)
+      operationId: createClassroom
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateClassroomRequest'
+      responses:
+        '201':
+          description: Аудитория создана
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  classroom:
+                    $ref: '#/components/schemas/Classroom'
+        '400':
+          description: Ошибка валидации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Не авторизован
+        '403':
+          description: Недостаточно прав
+
+  /api/classrooms/{classroom_id}:
+    get:
+      tags:
+        - classrooms
+      summary: Получить аудиторию по ID
+      description: Возвращает информацию об аудитории
+      operationId: getClassroom
+      parameters:
+        - name: classroom_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Информация об аудитории
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  classroom:
+                    $ref: '#/components/schemas/Classroom'
+        '404':
+          description: Аудитория не найдена
+
+    put:
+      tags:
+        - classrooms
+      summary: Обновить аудиторию
+      description: Обновить информацию об аудитории (требуется роль staff или admin)
+      operationId: updateClassroom
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: classroom_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateClassroomRequest'
+      responses:
+        '200':
+          description: Аудитория обновлена
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  classroom:
+                    $ref: '#/components/schemas/Classroom'
+        '403':
+          description: Недостаточно прав
+        '404':
+          description: Аудитория не найдена
+
+    delete:
+      tags:
+        - classrooms
+      summary: Удалить аудиторию
+      description: Удалить аудиторию (требуется роль staff или admin)
+      operationId: deleteClassroom
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: classroom_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: hard_delete
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Физическое удаление
+      responses:
+        '200':
+          description: Аудитория удалена
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+        '403':
+          description: Недостаточно прав
+        '404':
+          description: Аудитория не найдена
+
+  /api/classrooms/code/{code}:
+    get:
+      tags:
+        - classrooms
+      summary: Получить аудиторию по коду
+      description: Возвращает информацию об аудитории по её коду
+      operationId: getClassroomByCode
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "101"
+      responses:
+        '200':
+          description: Информация об аудитории
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  classroom:
+                    $ref: '#/components/schemas/Classroom'
+        '404':
+          description: Аудитория не найдена
+
+  /api/classrooms/available/search:
+    get:
+      tags:
+        - classrooms
+      summary: Найти свободные аудитории
+      description: Поиск свободных аудиторий по критериям
+      operationId: findAvailableClassrooms
+      parameters:
+        - name: day_of_week
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 6
+          description: День недели (1-6)
+        - name: time_slot
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 6
+          description: Номер пары (1-6)
+        - name: min_capacity
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: need_projector
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - name: need_whiteboard
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - name: need_computers
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - name: building_ids
+          in: query
+          schema:
+            type: string
+          description: ID зданий через запятую
+        - name: classroom_types
+          in: query
+          schema:
+            type: string
+          description: Типы аудиторий через запятую
+      responses:
+        '200':
+          description: Список свободных аудиторий
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  classrooms:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Classroom'
+                  total:
+                    type: integer
+                    example: 5
+
+  /api/classrooms/{classroom_id}/availability:
+    get:
+      tags:
+        - classrooms
+      summary: Проверить доступность аудитории
+      description: Проверить доступность аудитории в указанное время
+      operationId: checkAvailability
+      parameters:
+        - name: classroom_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: day_of_week
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 6
+        - name: time_slot
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 6
+      responses:
+        '200':
+          description: Результат проверки
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  available:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+
+  /api/classrooms/reserve:
+    post:
+      tags:
+        - classrooms
+      summary: Забронировать аудиторию
+      description: Забронировать аудиторию на определённое время (требуется роль staff или admin)
+      operationId: reserveClassroom
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReserveClassroomRequest'
+      responses:
+        '200':
+          description: Аудитория забронирована
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+        '400':
+          description: Аудитория занята или ошибка валидации
+        '403':
+          description: Недостаточно прав
+
+  /api/classrooms/{classroom_id}/schedule:
+    get:
+      tags:
+        - classrooms
+      summary: Получить расписание аудитории
+      description: Возвращает расписание занятий в аудитории
+      operationId: getClassroomSchedule
+      parameters:
+        - name: classroom_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: days
+          in: query
+          schema:
+            type: string
+          description: Дни недели через запятую (1-6)
+      responses:
+        '200':
+          description: Расписание аудитории
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  schedule:
+                    type: array
+                    items:
+                      type: object
+
+  /api/classrooms/statistics/overall:
+    get:
+      tags:
+        - classrooms
+      summary: Статистика по аудиториям
+      description: Получить статистику использования аудиторий
+      operationId: getClassroomStatistics
+      parameters:
+        - name: classroom_id
+          in: query
+          schema:
+            type: integer
+        - name: building_id
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Статистика
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  statistics:
+                    type: object
+
+  /api/agent/generate:
+    post:
+      tags:
+        - agent
+      summary: Запустить генерацию расписания
+      description: |
+        Запустить процесс генерации расписания с помощью LLM-агента.
+        
+        Процесс состоит из двух этапов:
+        - **Stage 1**: Оптимизация временных слотов (день + время)
+        - **Stage 2**: Назначение аудиторий
+        
+        Требуется роль staff или admin.
+      operationId: generateSchedule
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateScheduleRequest'
+      responses:
+        '200':
+          description: Генерация запущена
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  job_id:
+                    type: string
+                    example: "550e8400-e29b-41d4-a716-446655440000"
+                  message:
+                    type: string
+                    example: "Schedule generation started"
+        '400':
+          description: Ошибка валидации
+        '403':
+          description: Недостаточно прав
+
+  /api/agent/status/{job_id}:
+    get:
+      tags:
+        - agent
+      summary: Получить статус генерации
+      description: Получить текущий статус процесса генерации расписания
+      operationId: getGenerationStatus
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: Статус генерации
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  generation:
+                    $ref: '#/components/schemas/GenerationStatus'
+        '404':
+          description: Генерация не найдена
+
+  /api/agent/upload-loads:
+    post:
+      tags:
+        - agent
+      summary: Загрузить нагрузки из Excel
+      description: |
+        Загрузить учебную нагрузку из Excel файла.
+        
+        Формат файла должен содержать колонки:
+        - Преподаватель
+        - Группа
+        - Дисциплина
+        - Часов в семестр
+        - Тип занятия
+        
+        Требуется роль staff или admin.
+      operationId: uploadCourseLoads
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+                - semester
+                - academic_year
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Excel файл (.xlsx или .xls)
+                semester:
+                  type: integer
+                  minimum: 1
+                  maximum: 2
+                  description: Номер семестра
+                academic_year:
+                  type: string
+                  description: Учебный год (например, "2024/2025")
+      responses:
+        '200':
+          description: Файл загружен
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  total_loaded:
+                    type: integer
+                    example: 150
+                  message:
+                    type: string
+        '400':
+          description: Неверный формат файла
+        '403':
+          description: Недостаточно прав
+
+  /api/agent/schedule:
+    get:
+      tags:
+        - agent
+      summary: Получить расписание
+      description: Получить сгенерированное расписание
+      operationId: getSchedule
+      parameters:
+        - name: generation_id
+          in: query
+          schema:
+            type: integer
+          description: ID конкретной генерации
+        - name: only_active
+          in: query
+          schema:
+            type: boolean
+            default: true
+          description: Только активное расписание
+      responses:
+        '200':
+          description: Расписание
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  total_count:
+                    type: integer
+                    example: 500
+                  schedules:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ScheduleItem'
+
+  /api/schedule/group/{group_id}:
+    get:
+      tags:
+        - Schedule
+      summary: Расписание группы
+      description: Получить расписание для группы
+      operationId: getGroupSchedule
+      parameters:
+        - name: group_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: semester
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2
+        - name: academic_year
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "2024/2025"
+        - name: day_of_week
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 6
+          description: Фильтр по дню недели (1-6)
+        - name: week_type
+          in: query
+          schema:
+            type: string
+            enum: [odd, even, both]
+          description: Тип недели
+      responses:
+        '200':
+          description: Расписание группы
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  group_id:
+                    type: integer
+                    example: 1
+                  semester:
+                    type: integer
+                    example: 1
+                  academic_year:
+                    type: string
+                    example: "2024/2025"
+                  lessons:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Lesson'
+                  total_count:
+                    type: integer
+                    example: 30
+
+  /api/schedule/teacher/{teacher_id}:
+    get:
+      tags:
+        - Schedule
+      summary: Расписание преподавателя
+      description: Получить расписание для преподавателя
+      operationId: getTeacherSchedule
+      parameters:
+        - name: teacher_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: semester
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2
+        - name: academic_year
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "2024/2025"
+        - name: day_of_week
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 6
+        - name: week_type
+          in: query
+          schema:
+            type: string
+            enum: [odd, even, both]
+      responses:
+        '200':
+          description: Расписание преподавателя
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  teacher_id:
+                    type: integer
+                    example: 1
+                  semester:
+                    type: integer
+                    example: 1
+                  academic_year:
+                    type: string
+                    example: "2024/2025"
+                  lessons:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Lesson'
+                  total_count:
+                    type: integer
+                    example: 20
+
+  /api/schedule/classroom/{classroom_id}:
+    get:
+      tags:
+        - Schedule
+      summary: Расписание аудитории
+      description: Получить расписание для аудитории
+      operationId: getClassroomScheduleView
+      parameters:
+        - name: classroom_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: semester
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2
+        - name: academic_year
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "2024/2025"
+        - name: day_of_week
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 6
+        - name: week_type
+          in: query
+          schema:
+            type: string
+            enum: [odd, even, both]
+      responses:
+        '200':
+          description: Расписание аудитории
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  classroom_id:
+                    type: integer
+                    example: 1
+                  semester:
+                    type: integer
+                    example: 1
+                  academic_year:
+                    type: string
+                    example: "2024/2025"
+                  lessons:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Lesson'
+                  total_count:
+                    type: integer
+                    example: 25
+
+  /api/schedule/export/group/{group_id}/excel:
+    get:
+      tags:
+        - Schedule
+      summary: Экспорт расписания группы в Excel
+      description: Скачать расписание группы в формате Excel
+      operationId: exportGroupToExcel
+      parameters:
+        - name: group_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: semester
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2
+        - name: academic_year
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "2024/2025"
+      responses:
+        '200':
+          description: Excel файл
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+
+  /api/schedule/export/group/{group_id}/pdf:
+    get:
+      tags:
+        - Schedule
+      summary: Экспорт расписания группы в PDF
+      description: Скачать расписание группы в формате PDF
+      operationId: exportGroupToPdf
+      parameters:
+        - name: group_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: semester
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2
+        - name: academic_year
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "2024/2025"
+      responses:
+        '200':
+          description: PDF файл
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+
+  /api/schedule/export/group/{group_id}/ical:
+    get:
+      tags:
+        - Schedule
+      summary: Экспорт расписания группы в iCal
+      description: Скачать расписание группы в формате iCal (для Google Calendar, Apple Calendar)
+      operationId: exportGroupToIcal
+      parameters:
+        - name: group_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: semester
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2
+        - name: academic_year
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "2024/2025"
+      responses:
+        '200':
+          description: iCal файл
+          content:
+            text/calendar:
+              schema:
+                type: string
+                format: binary
+
+  /api/schedule/export/teacher/{teacher_id}/excel:
+    get:
+      tags:
+        - Schedule
+      summary: Экспорт расписания преподавателя в Excel
+      description: Скачать расписание преподавателя в формате Excel
+      operationId: exportTeacherToExcel
+      parameters:
+        - name: teacher_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: semester
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2
+        - name: academic_year
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "2024/2025"
+      responses:
+        '200':
+          description: Excel файл
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+
+  /api/schedule/search:
+    get:
+      tags:
+        - Schedule
+      summary: Поиск в расписании
+      description: Поиск по названиям дисциплин, преподавателей и групп
+      operationId: searchSchedule
+      parameters:
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+          description: Поисковый запрос
+        - name: semester
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2
+        - name: academic_year
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "2024/2025"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: Результаты поиска
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  query:
+                    type: string
+                    example: "Математика"
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Lesson'
+                  total_count:
+                    type: integer
+                    example: 15
+
+  /api/teachers:
+    get:
+      tags:
+        - teachers
+      summary: Список преподавателей
+      description: Получить список преподавателей с фильтрацией
+      operationId: listTeachers
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: employment_type
+          in: query
+          schema:
+            type: string
+            enum: [external, graduate, internal, staff]
+          description: Фильтр по типу занятости
+        - name: department
+          in: query
+          schema:
+            type: string
+          description: Фильтр по кафедре
+        - name: only_active
+          in: query
+          schema:
+            type: boolean
+            default: true
+      responses:
+        '200':
+          description: Список преподавателей
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  teachers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Teacher'
+                  total_count:
+                    type: integer
+                    example: 100
+                  page:
+                    type: integer
+                    example: 1
+                  page_size:
+                    type: integer
+                    example: 50
+
+    post:
+      tags:
+        - teachers
+      summary: Создать преподавателя
+      description: |
+        Создать нового преподавателя.
+        
+        Автоматически вычисляется priority на основе employment_type:
+        - external → priority = 1 (высший приоритет)
+        - graduate → priority = 2
+        - internal → priority = 3
+        - staff → priority = 4
+      operationId: createTeacher
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTeacherRequest'
+      responses:
+        '201':
+          description: Преподаватель создан
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  teacher:
+                    $ref: '#/components/schemas/Teacher'
+                  message:
+                    type: string
+                    example: Teacher created successfully
+
+  /api/teachers/{teacher_id}:
+    get:
+      tags:
+        - teachers
+      summary: Получить преподавателя
+      description: Получить информацию о преподавателе по ID
+      operationId: getTeacher
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: teacher_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: include_preferences
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Включить статистику предпочтений
+      responses:
+        '200':
+          description: Информация о преподавателе
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Teacher'
+        '404':
+          description: Преподаватель не найден
+
+    put:
+      tags:
+        - teachers
+      summary: Обновить преподавателя
+      description: Обновить информацию о преподавателе
+      operationId: updateTeacher
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: teacher_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTeacherRequest'
+      responses:
+        '200':
+          description: Преподаватель обновлён
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+        '404':
+          description: Преподаватель не найден
+
+    delete:
+      tags:
+        - teachers
+      summary: Удалить преподавателя
+      description: Мягкое удаление (устанавливает is_active = false)
+      operationId: deleteTeacher
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: teacher_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Преподаватель удалён
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+
+  /api/teachers/search:
+    get:
+      tags:
+        - teachers
+      summary: Поиск преподавателей
+      description: Поиск по ФИО, email, кафедре
+      operationId: searchTeachers
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+          description: Поисковый запрос
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Результаты поиска
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  teachers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Teacher'
+                  query:
+                    type: string
+                    example: "Иванов"
+                  total_found:
+                    type: integer
+                    example: 5
+
+  /api/teachers/{teacher_id}/preferences:
+    get:
+      tags:
+        - preferences
+      summary: Получить предпочтения преподавателя
+      description: |
+        ⭐ Получить предпочтения преподавателя по временным слотам.
+        
+        Возвращает:
+        - Список предпочтений по дням и парам
+        - Статистику (coverage, preferred/not_preferred count)
+      operationId: getTeacherPreferences
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: teacher_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Предпочтения преподавателя
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  teacher_id:
+                    type: integer
+                    example: 1
+                  teacher_name:
+                    type: string
+                    example: "Иванов Иван Иванович"
+                  teacher_priority:
+                    type: integer
+                    example: 1
+                  preferences:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TeacherPreference'
+                  statistics:
+                    type: object
+                    properties:
+                      total_preferences:
+                        type: integer
+                        example: 12
+                      preferred_count:
+                        type: integer
+                        example: 8
+                      not_preferred_count:
+                        type: integer
+                        example: 4
+                      coverage_percentage:
+                        type: number
+                        format: float
+                        example: 33.33
+
+    post:
+      tags:
+        - preferences
+      summary: Установить предпочтения преподавателя
+      description: |
+        ⭐ Установить предпочтения преподавателя по временным слотам.
+        
+        Это KEY ENDPOINT для системы оптимизации расписания!
+        
+        Пример:
+        - day_of_week: 1-6 (Понедельник-Суббота)
+        - time_slot: 1-6 (номер пары)
+        - is_preferred: true = удобное время, false = неудобное время
+      operationId: setTeacherPreferences
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: teacher_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetPreferencesRequest'
+      responses:
+        '200':
+          description: Предпочтения установлены
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  created_count:
+                    type: integer
+                    example: 5
+                  updated_count:
+                    type: integer
+                    example: 2
+                  deleted_count:
+                    type: integer
+                    example: 0
+                  message:
+                    type: string
+
+    delete:
+      tags:
+        - preferences
+      summary: Очистить предпочтения преподавателя
+      description: Удалить все предпочтения преподавателя
+      operationId: clearTeacherPreferences
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: teacher_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Предпочтения очищены
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+
+  /api/preferences/grid:
+    get:
+      tags:
+        - preferences
+      summary: Получить предпочтения в виде сетки
+      description: |
+        Возвращает предпочтения в виде матрицы 6×6:
+        - null: предпочтение не установлено
+        - true: удобное время
+        - false: неудобное время
+      operationId: getPreferencesGrid
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: teacher_id
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Сетка предпочтений
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  teacher_id:
+                    type: integer
+                    example: 1
+                  teacher_name:
+                    type: string
+                    example: "Иванов Иван Иванович"
+                  grid:
+                    type: array
+                    items:
+                      type: array
+                      items:
+                        type: boolean
+                        nullable: true
+                    description: Матрица 6×6 (дни × пары)
+                  legend:
+                    type: object
+                    properties:
+                      days:
+                        type: array
+                        items:
+                          type: string
+                        example: ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"]
+                      slots:
+                        type: array
+                        items:
+                          type: string
+                        example: ["1 пара", "2 пара", "3 пара", "4 пара", "5 пара", "6 пара"]
+
+  /api/groups:
+    get:
+      tags:
+        - groups
+      summary: Список групп
+      description: Получить список групп с фильтрацией
+      operationId: listGroups
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: year
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 6
+          description: Фильтр по курсу
+        - name: level
+          in: query
+          schema:
+            type: string
+            enum: [bachelor, master, phd]
+          description: Фильтр по уровню
+        - name: only_active
+          in: query
+          schema:
+            type: boolean
+            default: true
+      responses:
+        '200':
+          description: Список групп
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groups:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Group'
+                  total_count:
+                    type: integer
+                    example: 50
+                  page:
+                    type: integer
+                    example: 1
+                  page_size:
+                    type: integer
+                    example: 50
+
+    post:
+      tags:
+        - groups
+      summary: Создать группу
+      description: Создать новую группу
+      operationId: createGroup
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGroupRequest'
+      responses:
+        '201':
+          description: Группа создана
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  group:
+                    $ref: '#/components/schemas/Group'
+                  message:
+                    type: string
+                    example: Group created successfully
+
+  /api/groups/{group_id}:
+    get:
+      tags:
+        - groups
+      summary: Получить группу
+      description: Получить информацию о группе по ID
+      operationId: getGroup
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: group_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Информация о группе
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+        '404':
+          description: Группа не найдена
+
+    put:
+      tags:
+        - groups
+      summary: Обновить группу
+      description: Обновить информацию о группе
+      operationId: updateGroup
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: group_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateGroupRequest'
+      responses:
+        '200':
+          description: Группа обновлена
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+        '404':
+          description: Группа не найдена
+
+    delete:
+      tags:
+        - groups
+      summary: Удалить группу
+      description: Мягкое удаление (устанавливает is_active = false)
+      operationId: deleteGroup
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: group_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Группа удалена
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+
+  /api/groups/{group_id}/students:
+    get:
+      tags:
+        - groups
+      summary: Студенты группы
+      description: Получить список студентов группы
+      operationId: getGroupStudents
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: group_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Список студентов
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  group_id:
+                    type: integer
+                    example: 1
+                  students:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Student'
+                  total_count:
+                    type: integer
+                    example: 25
+
+  /api/students:
+    get:
+      tags:
+        - students
+      summary: Список студентов
+      description: Получить список студентов с фильтрацией
+      operationId: listStudents
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: group_id
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, academic_leave, expelled, graduated]
+      responses:
+        '200':
+          description: Список студентов
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  students:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Student'
+                  total_count:
+                    type: integer
+                    example: 500
+
+    post:
+      tags:
+        - students
+      summary: Создать студента
+      operationId: createStudent
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStudentRequest'
+      responses:
+        '201':
+          description: Студент создан
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  student:
+                    $ref: '#/components/schemas/Student'
+
+  /api/students/{student_id}:
+    get:
+      tags:
+        - students
+      summary: Получить студента
+      operationId: getStudent
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: student_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Информация о студенте
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Student'
+
+    put:
+      tags:
+        - students
+      summary: Обновить студента
+      operationId: updateStudent
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: student_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateStudentRequest'
+      responses:
+        '200':
+          description: Студент обновлён
+
+    delete:
+      tags:
+        - students
+      summary: Удалить студента
+      operationId: deleteStudent
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: student_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Студент удалён
+
+  /api/students/search:
+    get:
+      tags:
+        - students
+      summary: Поиск студентов
+      operationId: searchStudents
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Результаты поиска
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  students:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Student'
+
+  /api/course-loads:
+    get:
+      tags:
+        - course-loads
+      summary: Список учебной нагрузки
+      operationId: listCourseLoads
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: semester
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2
+        - name: academic_year
+          in: query
+          schema:
+            type: string
+        - name: teacher_id
+          in: query
+          schema:
+            type: integer
+        - name: group_id
+          in: query
+          schema:
+            type: integer
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: Список нагрузки
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  course_loads:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CourseLoad'
+
+    post:
+      tags:
+        - course-loads
+      summary: Создать учебную нагрузку
+      operationId: createCourseLoad
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCourseLoadRequest'
+      responses:
+        '201':
+          description: Нагрузка создана
+
+  /api/course-loads/import:
+    post:
+      tags:
+        - course-loads
+      summary: Импортировать нагрузку из Excel
+      operationId: importCourseLoads
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+                - semester
+                - academic_year
+              properties:
+                file:
+                  type: string
+                  format: binary
+                semester:
+                  type: integer
+                  minimum: 1
+                  maximum: 2
+                academic_year:
+                  type: string
+      responses:
+        '202':
+          description: Импорт запущен
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  batch_id:
+                    type: string
+                  message:
+                    type: string
+
+  /api/course-loads/import/{batch_id}:
+    get:
+      tags:
+        - course-loads
+      summary: Статус импорта нагрузки
+      operationId: getImportStatus
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: batch_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Статус импорта
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  batch_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [processing, completed, failed]
+                  total_rows:
+                    type: integer
+                  successful_rows:
+                    type: integer
+                  failed_rows:
+                    type: integer
+                  errors:
+                    type: array
+                    items:
+                      type: string
+
+  /api/course-loads/{load_id}:
+    delete:
+      tags:
+        - course-loads
+      summary: Удалить учебную нагрузку
+      operationId: deleteCourseLoad
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: load_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Нагрузка удалена
+
+  /api/course-loads/summary:
+    get:
+      tags:
+        - course-loads
+      summary: Сводка по нагрузке
+      operationId: getCourseLoadsSummary
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: semester
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2
+        - name: academic_year
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Сводка по нагрузке
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  semester:
+                    type: integer
+                  academic_year:
+                    type: string
+                  total_hours:
+                    type: integer
+                  teachers_count:
+                    type: integer
+                  groups_count:
+                    type: integer
+                  disciplines_count:
+                    type: integer
+                  by_lesson_type:
+                    type: object
+

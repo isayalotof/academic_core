@@ -1,0 +1,238 @@
+syntax = "proto3";
+
+package lms;
+
+// ============ СЕРВИС ============
+
+service LMSService {
+    // Курсы
+    rpc CreateCourse(CreateCourseRequest) returns (CourseResponse);
+    rpc GetCourse(GetCourseRequest) returns (CourseResponse);
+    rpc UpdateCourse(UpdateCourseRequest) returns (CourseResponse);
+    rpc DeleteCourse(DeleteCourseRequest) returns (DeleteResponse);
+    rpc ListCourses(ListCoursesRequest) returns (CoursesListResponse);
+    rpc EnrollInCourse(EnrollRequest) returns (EnrollResponse);
+    
+    // Модули
+    rpc CreateModule(CreateModuleRequest) returns (ModuleResponse);
+    rpc GetModule(GetModuleRequest) returns (ModuleResponse);
+    rpc UpdateModule(UpdateModuleRequest) returns (ModuleResponse);
+    rpc DeleteModule(DeleteModuleRequest) returns (DeleteResponse);
+    rpc ListModules(ListModulesRequest) returns (ModulesListResponse);
+    
+    // Материалы
+    rpc AddMaterial(AddMaterialRequest) returns (MaterialResponse);
+    rpc GetMaterial(GetMaterialRequest) returns (MaterialResponse);
+    rpc DeleteMaterial(DeleteMaterialRequest) returns (DeleteResponse);
+    rpc ListMaterials(ListMaterialsRequest) returns (MaterialsListResponse);
+    
+    // Прогресс
+    rpc GetProgress(GetProgressRequest) returns (ProgressResponse);
+    rpc UpdateProgress(UpdateProgressRequest) returns (ProgressResponse);
+    rpc GetStudentCourses(GetStudentCoursesRequest) returns (CoursesListResponse);
+    
+    // Health Check
+    rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// ============ МОДЕЛИ ============
+
+message Course {
+    int32 id = 1;
+    string title = 2;
+    string description = 3;
+    string code = 4;
+    int32 teacher_id = 5;
+    string teacher_name = 6;
+    string status = 7;  // draft, published, archived
+    int32 enrolled_count = 8;
+    string created_at = 9;
+    string updated_at = 10;
+}
+
+message Module {
+    int32 id = 1;
+    int32 course_id = 2;
+    string title = 3;
+    string description = 4;
+    int32 order = 5;
+    string created_at = 6;
+    string updated_at = 7;
+}
+
+message Material {
+    int32 id = 1;
+    int32 module_id = 2;
+    string title = 3;
+    string type = 4;  // file, link, text, video
+    string content = 5;  // URL или текст
+    string file_path = 6;
+    int32 order = 7;
+    string created_at = 8;
+}
+
+message Progress {
+    int32 id = 1;
+    int32 student_id = 2;
+    int32 course_id = 3;
+    int32 module_id = 4;
+    bool completed = 5;
+    float progress_percentage = 6;
+    string completed_at = 7;
+    string updated_at = 8;
+}
+
+// ============ ЗАПРОСЫ ============
+
+message CreateCourseRequest {
+    string title = 1;
+    string description = 2;
+    string code = 3;
+    int32 teacher_id = 4;
+    string status = 5;
+}
+
+message GetCourseRequest {
+    int32 id = 1;
+}
+
+message UpdateCourseRequest {
+    int32 id = 1;
+    string title = 2;
+    string description = 3;
+    string status = 4;
+}
+
+message DeleteCourseRequest {
+    int32 id = 1;
+}
+
+message ListCoursesRequest {
+    int32 page = 1;
+    int32 page_size = 2;
+    int32 teacher_id = 3;
+    string status = 4;
+}
+
+message EnrollRequest {
+    int32 course_id = 1;
+    int32 student_id = 2;
+}
+
+message EnrollResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message CreateModuleRequest {
+    int32 course_id = 1;
+    string title = 2;
+    string description = 3;
+    int32 order = 4;
+}
+
+message GetModuleRequest {
+    int32 id = 1;
+}
+
+message UpdateModuleRequest {
+    int32 id = 1;
+    string title = 2;
+    string description = 3;
+    int32 order = 4;
+}
+
+message DeleteModuleRequest {
+    int32 id = 1;
+}
+
+message ListModulesRequest {
+    int32 course_id = 1;
+}
+
+message AddMaterialRequest {
+    int32 module_id = 1;
+    string title = 2;
+    string type = 3;
+    string content = 4;
+    string file_path = 5;
+    int32 order = 6;
+}
+
+message GetMaterialRequest {
+    int32 id = 1;
+}
+
+message DeleteMaterialRequest {
+    int32 id = 1;
+}
+
+message ListMaterialsRequest {
+    int32 module_id = 1;
+}
+
+message GetProgressRequest {
+    int32 student_id = 1;
+    int32 course_id = 2;
+}
+
+message UpdateProgressRequest {
+    int32 student_id = 1;
+    int32 course_id = 2;
+    int32 module_id = 3;
+    bool completed = 4;
+}
+
+message GetStudentCoursesRequest {
+    int32 student_id = 1;
+}
+
+message CourseResponse {
+    Course course = 1;
+    string message = 2;
+}
+
+message CoursesListResponse {
+    repeated Course courses = 1;
+    int32 total_count = 2;
+}
+
+message ModuleResponse {
+    Module module = 1;
+    string message = 2;
+}
+
+message ModulesListResponse {
+    repeated Module modules = 1;
+    int32 total_count = 2;
+}
+
+message MaterialResponse {
+    Material material = 1;
+    string message = 2;
+}
+
+message MaterialsListResponse {
+    repeated Material materials = 1;
+    int32 total_count = 2;
+}
+
+message ProgressResponse {
+    Progress progress = 1;
+    float overall_progress = 2;
+    string message = 3;
+}
+
+message DeleteResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+    string status = 1;
+    string version = 2;
+    string timestamp = 3;
+}
+

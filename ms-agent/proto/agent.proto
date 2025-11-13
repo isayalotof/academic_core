@@ -1,0 +1,277 @@
+syntax = "proto3";
+
+package agent;
+
+// ============ СЕРВИС ============
+
+service AgentService {
+    // Генерация расписания
+    rpc GenerateSchedule(GenerateRequest) returns (GenerateResponse);
+    rpc GetGenerationStatus(StatusRequest) returns (StatusResponse);
+    rpc GetGenerationHistory(HistoryRequest) returns (HistoryResponse);
+    rpc StopGeneration(StopRequest) returns (StopResponse);
+    
+    // Управление нагрузкой
+    rpc GetCourseLoads(GetCourseLoadsRequest) returns (CourseLoadsResponse);
+    
+    // Расписание
+    rpc GetSchedule(GetScheduleRequest) returns (ScheduleResponse);
+    rpc GetScheduleForGroup(GroupScheduleRequest) returns (ScheduleResponse);
+    rpc GetScheduleForTeacher(TeacherScheduleRequest) returns (ScheduleResponse);
+    
+    // Аналитика
+    rpc AnalyzeSchedule(AnalyzeRequest) returns (AnalysisResponse);
+    rpc GetMetrics(MetricsRequest) returns (MetricsResponse);
+    
+    // Health check
+    rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// ============ МОДЕЛИ ============
+
+message CourseLoad {
+    int32 id = 1;
+    string discipline_name = 2;
+    string discipline_code = 3;
+    
+    int32 teacher_id = 4;
+    string teacher_name = 5;
+    int32 teacher_priority = 6;
+    
+    int32 group_id = 7;
+    string group_name = 8;
+    int32 group_size = 9;
+    
+    string lesson_type = 10;
+    int32 hours_per_semester = 11;
+    int32 lessons_per_week = 12;
+    
+    int32 semester = 13;
+    string academic_year = 14;
+}
+
+message Schedule {
+    int32 id = 1;
+    int32 course_load_id = 2;
+    
+    int32 day_of_week = 3;
+    int32 time_slot = 4;
+    
+    int32 classroom_id = 5;
+    string classroom_name = 6;
+    
+    int32 teacher_id = 7;
+    string teacher_name = 8;
+    int32 group_id = 9;
+    string group_name = 10;
+    string discipline_name = 11;
+    string lesson_type = 12;
+    
+    int32 generation_id = 13;
+    bool is_active = 14;
+}
+
+message GenerationHistory {
+    int32 id = 1;
+    string job_id = 2;
+    
+    int32 stage = 3;
+    string stage_name = 4;
+    string status = 5;
+    
+    int32 current_iteration = 6;
+    int32 max_iterations = 7;
+    
+    int32 initial_score = 8;
+    int32 current_score = 9;
+    int32 best_score = 10;
+    
+    map<string, int32> metrics = 11;
+    
+    string last_reasoning = 12;
+    int32 total_actions = 13;
+    
+    string started_at = 14;
+    string completed_at = 15;
+    int32 duration_seconds = 16;
+    
+    string error_message = 17;
+}
+
+message AgentAction {
+    int32 id = 1;
+    int32 generation_id = 2;
+    int32 iteration = 3;
+    
+    string action_type = 4;
+    string action_params = 5;  // JSON
+    
+    bool success = 6;
+    int32 score_before = 7;
+    int32 score_after = 8;
+    int32 score_delta = 9;
+    
+    string reasoning = 10;
+    string created_at = 11;
+    int32 execution_time_ms = 12;
+}
+
+// ============ ЗАПРОСЫ ============
+
+message GenerateRequest {
+    // Параметры генерации
+    int32 semester = 1;                        // 1 или 2
+    int32 max_iterations = 2;                  // default: 100
+    
+    // Опции
+    bool skip_stage1 = 3;                      // Пропустить Stage 1 (использовать существующее)
+    bool skip_stage2 = 4;                      // Пропустить Stage 2 (без аудиторий)
+    
+    // Для Stage 2
+    repeated int32 building_ids = 5;           // Ограничить здания
+    
+    // Пользователь
+    int32 created_by = 6;
+}
+
+message GenerateResponse {
+    bool success = 1;
+    string job_id = 2;
+    string message = 3;
+}
+
+message StatusRequest {
+    string job_id = 1;
+}
+
+message StatusResponse {
+    GenerationHistory generation = 1;
+    
+    // Текущий прогресс
+    float progress_percentage = 2;
+    int32 estimated_seconds_remaining = 3;
+    
+    // Последние действия
+    repeated AgentAction recent_actions = 4;   // Последние 5
+}
+
+message HistoryRequest {
+    string job_id = 1;
+    int32 limit = 2;                           // default: 100
+}
+
+message HistoryResponse {
+    GenerationHistory generation = 1;
+    repeated AgentAction actions = 2;
+}
+
+message StopRequest {
+    string job_id = 1;
+}
+
+message StopResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+// ============ НАГРУЗКА ============
+
+message GetCourseLoadsRequest {
+    int32 semester = 1;
+    repeated int32 teacher_ids = 2;
+    repeated int32 group_ids = 3;
+}
+
+message CourseLoadsResponse {
+    repeated CourseLoad course_loads = 1;
+    int32 total_count = 2;
+}
+
+// ============ РАСПИСАНИЕ ============
+
+message GetScheduleRequest {
+    int32 generation_id = 1;                   // Конкретная генерация
+    bool only_active = 2;                      // Только активное
+}
+
+message GroupScheduleRequest {
+    int32 group_id = 1;
+    int32 day_of_week = 2;                     // optional
+}
+
+message TeacherScheduleRequest {
+    int32 teacher_id = 1;
+    int32 day_of_week = 2;                     // optional
+}
+
+message ScheduleResponse {
+    repeated Schedule schedules = 1;
+    int32 total_count = 2;
+}
+
+// ============ АНАЛИТИКА ============
+
+message AnalyzeRequest {
+    oneof target {
+        int32 generation_id = 1;
+        bool current_active = 2;
+    }
+}
+
+message AnalysisResponse {
+    // Конфликты
+    repeated Conflict conflicts = 1;
+    
+    // Метрики
+    int32 total_lessons = 2;
+    int32 preference_violations = 3;
+    int32 isolated_lessons = 4;
+    int32 gaps_count = 5;
+    
+    // Скор
+    int32 total_score = 6;
+    
+    // По преподавателям
+    map<int32, string> teacher_metrics_json = 7;  // JSON string
+}
+
+message Conflict {
+    string conflict_type = 1;                  // 'teacher', 'group', 'classroom'
+    int32 day_of_week = 2;
+    int32 time_slot = 3;
+    repeated int32 schedule_ids = 4;
+    string description = 5;
+}
+
+message MetricsRequest {
+    string job_id = 1;
+}
+
+message MetricsResponse {
+    // Прогресс оптимизации
+    repeated ScorePoint score_history = 1;
+    
+    // Топ действий
+    repeated ActionSummary top_actions = 2;
+}
+
+message ScorePoint {
+    int32 iteration = 1;
+    int32 score = 2;
+}
+
+message ActionSummary {
+    string action_type = 1;
+    int32 count = 2;
+    int32 avg_score_delta = 3;
+}
+
+// ============ HEALTH CHECK ============
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+    string status = 1;
+    string version = 2;
+}
+

@@ -1,0 +1,112 @@
+syntax = "proto3";
+
+package cafeteria;
+
+service CafeteriaService {
+    rpc AddMenuItem(AddMenuItemRequest) returns (MenuItemResponse);
+    rpc GetMenu(GetMenuRequest) returns (MenuResponse);
+    rpc CreateOrder(CreateOrderRequest) returns (OrderResponse);
+    rpc GetOrder(GetOrderRequest) returns (OrderResponse);
+    rpc ListOrders(ListOrdersRequest) returns (OrdersListResponse);
+    rpc GetBalance(GetBalanceRequest) returns (BalanceResponse);
+    rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+message MenuItem {
+    int32 id = 1;
+    string name = 2;
+    string description = 3;
+    string category = 4;  // main, side, drink, dessert
+    float price = 5;
+    bool available = 6;
+    string date = 7;  // for daily menu
+}
+
+message Order {
+    int32 id = 1;
+    int32 user_id = 2;
+    string user_name = 3;
+    repeated OrderItem items = 4;
+    float total_amount = 5;
+    string status = 6;  // pending, preparing, ready, completed
+    string order_date = 7;
+    string created_at = 8;
+}
+
+message OrderItem {
+    int32 menu_item_id = 1;
+    string menu_item_name = 2;
+    int32 quantity = 3;
+    float price = 4;
+}
+
+message AddMenuItemRequest {
+    string name = 1;
+    string description = 2;
+    string category = 3;
+    float price = 4;
+    string date = 5;
+}
+
+message GetMenuRequest {
+    string date = 1;
+}
+
+message CreateOrderRequest {
+    int32 user_id = 2;
+    repeated OrderItemRequest items = 3;
+}
+
+message OrderItemRequest {
+    int32 menu_item_id = 1;
+    int32 quantity = 2;
+}
+
+message GetOrderRequest {
+    int32 id = 1;
+}
+
+message ListOrdersRequest {
+    int32 page = 1;
+    int32 page_size = 2;
+    int32 user_id = 3;
+    string status = 4;
+    string date = 5;
+}
+
+message GetBalanceRequest {
+    int32 user_id = 1;
+}
+
+message MenuItemResponse {
+    MenuItem item = 1;
+    string message = 2;
+}
+
+message MenuResponse {
+    repeated MenuItem items = 1;
+    string date = 2;
+}
+
+message OrderResponse {
+    Order order = 1;
+    string message = 2;
+}
+
+message OrdersListResponse {
+    repeated Order orders = 1;
+    int32 total_count = 2;
+}
+
+message BalanceResponse {
+    float balance = 1;
+    string message = 2;
+}
+
+message HealthCheckRequest {}
+message HealthCheckResponse {
+    string status = 1;
+    string version = 2;
+    string timestamp = 3;
+}
+

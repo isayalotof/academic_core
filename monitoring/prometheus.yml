@@ -1,0 +1,123 @@
+# Prometheus Configuration for University Schedule System
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'university-schedule'
+    environment: 'production'
+
+# Alerting configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+# Scrape configurations
+scrape_configs:
+  # API Gateway
+  - job_name: 'gateway'
+    static_configs:
+      - targets: ['gateway:8000']
+        labels:
+          service: 'gateway'
+          role: 'api-gateway'
+          tier: 'frontend'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # MS-Auth (Authentication & Authorization)
+  - job_name: 'ms-auth'
+    static_configs:
+      - targets: ['ms-auth:8001']
+        labels:
+          service: 'ms-auth'
+          role: 'microservice'
+          tier: 'backend'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # MS-Audit (Classroom Management)
+  - job_name: 'ms-audit'
+    static_configs:
+      - targets: ['ms-audit:8001']
+        labels:
+          service: 'ms-audit'
+          role: 'microservice'
+          tier: 'backend'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # MS-Agent (LLM Schedule Generator)
+  - job_name: 'ms-agent'
+    static_configs:
+      - targets: ['ms-agent:8001']
+        labels:
+          service: 'ms-agent'
+          role: 'microservice'
+          tier: 'backend'
+          type: 'ai-agent'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # MS-Core (Core Entities Management)
+  - job_name: 'ms-core'
+    static_configs:
+      - targets: ['ms-core:8001']
+        labels:
+          service: 'ms-core'
+          role: 'microservice'
+          tier: 'backend'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # MS-Schedule (Schedule Management)
+  - job_name: 'ms-schedule'
+    static_configs:
+      - targets: ['ms-schedule:8001']
+        labels:
+          service: 'ms-schedule'
+          role: 'microservice'
+          tier: 'backend'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # PostgreSQL (using postgres_exporter if available)
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+        labels:
+          service: 'postgres'
+          role: 'database'
+          tier: 'infrastructure'
+    scrape_interval: 30s
+
+  # RabbitMQ Management Plugin
+  - job_name: 'rabbitmq'
+    static_configs:
+      - targets: ['rabbitmq:15692']
+        labels:
+          service: 'rabbitmq'
+          role: 'message-broker'
+          tier: 'infrastructure'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  # Redis (using redis_exporter if available)
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+        labels:
+          service: 'redis'
+          role: 'cache'
+          tier: 'infrastructure'
+    scrape_interval: 15s
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+          role: 'monitoring'
+

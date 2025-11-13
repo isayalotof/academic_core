@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package library;
+
+service LibraryService {
+    rpc AddBook(AddBookRequest) returns (BookResponse);
+    rpc GetBook(GetBookRequest) returns (BookResponse);
+    rpc ListBooks(ListBooksRequest) returns (BooksListResponse);
+    rpc ReserveBook(ReserveBookRequest) returns (ReserveResponse);
+    rpc GetReservations(GetReservationsRequest) returns (ReservationsResponse);
+    rpc ReturnBook(ReturnBookRequest) returns (ReturnResponse);
+    rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+message Book {
+    int32 id = 1;
+    string title = 2;
+    string author = 3;
+    string isbn = 4;
+    string category = 5;
+    int32 total_copies = 6;
+    int32 available_copies = 7;
+    string created_at = 8;
+}
+
+message Reservation {
+    int32 id = 1;
+    int32 book_id = 2;
+    int32 user_id = 3;
+    string user_name = 4;
+    string status = 5;  // reserved, borrowed, returned
+    string reserved_at = 6;
+    string due_date = 7;
+    string returned_at = 8;
+}
+
+message AddBookRequest {
+    string title = 1;
+    string author = 2;
+    string isbn = 3;
+    string category = 4;
+    int32 total_copies = 5;
+}
+
+message GetBookRequest {
+    int32 id = 1;
+}
+
+message ListBooksRequest {
+    int32 page = 1;
+    int32 page_size = 2;
+    string author = 3;
+    string category = 4;
+    string search = 5;
+}
+
+message ReserveBookRequest {
+    int32 book_id = 1;
+    int32 user_id = 2;
+    int32 days = 3;  // loan period in days
+}
+
+message GetReservationsRequest {
+    int32 user_id = 1;
+    string status = 2;
+}
+
+message ReturnBookRequest {
+    int32 reservation_id = 1;
+}
+
+message BookResponse {
+    Book book = 1;
+    string message = 2;
+}
+
+message BooksListResponse {
+    repeated Book books = 1;
+    int32 total_count = 2;
+}
+
+message ReserveResponse {
+    bool success = 1;
+    string message = 2;
+    int32 reservation_id = 3;
+}
+
+message ReservationsResponse {
+    repeated Reservation reservations = 1;
+    int32 total_count = 2;
+}
+
+message ReturnResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message HealthCheckRequest {}
+message HealthCheckResponse {
+    string status = 1;
+    string version = 2;
+    string timestamp = 3;
+}
+

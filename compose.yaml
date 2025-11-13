@@ -1,0 +1,596 @@
+services:
+  # ============ БАЗА ДАННЫХ ============
+  postgres:
+    image: postgres:15-alpine
+    container_name: university-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-university_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-university_pass_secure_2024}
+      POSTGRES_DB: ${POSTGRES_DB:-university_db}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - university-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U university_user -d university_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============ RABBITMQ ============
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: university-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-university_user}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-rabbitmq_pass_secure_2024}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"    # AMQP
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"  # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - university-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============ REDIS (Кэширование) ============
+  redis:
+    image: redis:7-alpine
+    container_name: university-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:-redis_pass_secure_2024}
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - university-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============ МИКРОСЕРВИС АУТЕНТИФИКАЦИИ ============
+  ms-auth:
+    build:
+      context: ./ms-auth
+      dockerfile: Dockerfile
+    container_name: ms-auth
+    environment:
+      # База данных
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${POSTGRES_DB:-university_db}
+      DB_USER: ${POSTGRES_USER:-university_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-university_pass_secure_2024}
+      
+      # Redis
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_pass_secure_2024}
+      
+      # JWT
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-15}
+      JWT_REFRESH_TOKEN_EXPIRE_DAYS: ${JWT_REFRESH_TOKEN_EXPIRE_DAYS:-30}
+      
+      # gRPC
+      GRPC_PORT: ${MS_AUTH_PORT:-50052}
+      
+      # Настройки
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      
+      # Безопасность
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+      MAX_LOGIN_ATTEMPTS: ${MAX_LOGIN_ATTEMPTS:-5}
+      LOCKOUT_DURATION_MINUTES: ${LOCKOUT_DURATION_MINUTES:-30}
+    ports:
+      - "${MS_AUTH_PORT:-50052}:${MS_AUTH_PORT:-50052}"  # gRPC
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - university-network
+    volumes:
+      - ./ms-auth:/app
+    restart: unless-stopped
+
+  # ============ МИКРОСЕРВИС LLM-АГЕНТА ============
+  ms-agent:
+    build:
+      context: ./ms-agent
+      dockerfile: Dockerfile
+    container_name: ms-agent
+    environment:
+      # База данных
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${POSTGRES_DB:-university_db}
+      DB_USER: ${POSTGRES_USER:-university_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-university_pass_secure_2024}
+      
+      # Redis
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_pass_secure_2024}
+      
+      # GigaChat API (УКАЖИТЕ ВАШИ CREDENTIALS!)
+      GIGACHAT_CLIENT_ID: ${GIGACHAT_CLIENT_ID}
+      GIGACHAT_CLIENT_SECRET: ${GIGACHAT_CLIENT_SECRET}
+      GIGACHAT_SCOPE: ${GIGACHAT_SCOPE:-GIGACHAT_API_PERS}
+      GIGACHAT_MODEL: GigaChat
+      
+      # RPC клиенты
+      MS_AUDIT_HOST: ms-audit
+      MS_AUDIT_PORT: ${MS_AUDIT_PORT:-50051}
+      MS_CORE_HOST: ms-core
+      MS_CORE_PORT: ${MS_CORE_PORT:-50054}
+      MS_SCHEDULE_HOST: ms-schedule
+      MS_SCHEDULE_PORT: ${MS_SCHEDULE_PORT:-50055}
+      
+      # gRPC
+      GRPC_PORT: ${MS_AGENT_PORT:-50053}
+      
+      # Настройки
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      MAX_ITERATIONS: ${MAX_ITERATIONS:-100}
+    ports:
+      - "${MS_AGENT_PORT:-50053}:${MS_AGENT_PORT:-50053}"  # gRPC
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ms-audit:
+        condition: service_started
+      ms-core:
+        condition: service_started
+      ms-schedule:
+        condition: service_started
+    networks:
+      - university-network
+    volumes:
+      - ./ms-agent:/app
+    restart: unless-stopped
+
+  # ============ МИКРОСЕРВИС АУДИТОРИЙ ============
+  ms-audit:
+    build:
+      context: ./ms-audit
+      dockerfile: Dockerfile
+    container_name: ms-audit
+    environment:
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${POSTGRES_DB:-university_db}
+      DB_USER: ${POSTGRES_USER:-university_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-university_pass_secure_2024}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_pass_secure_2024}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USER: ${RABBITMQ_USER:-university_user}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-rabbitmq_pass_secure_2024}
+      GRPC_PORT: ${MS_AUDIT_PORT:-50051}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+    ports:
+      - "${MS_AUDIT_PORT:-50051}:${MS_AUDIT_PORT:-50051}"  # gRPC
+      - "8001:8001"    # Metrics
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - university-network
+    volumes:
+      - ./ms-audit:/app
+    restart: unless-stopped
+
+  # ============ МИКРОСЕРВИС РАСПИСАНИЯ ============
+  ms-schedule:
+    build:
+      context: ./ms-schedule
+      dockerfile: Dockerfile
+    container_name: ms-schedule
+    environment:
+      # База данных
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${POSTGRES_DB:-university_db}
+      DB_USER: ${POSTGRES_USER:-university_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-university_pass_secure_2024}
+      
+      # Redis
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_pass_secure_2024}
+      
+      # RPC клиенты
+      MS_AUDIT_HOST: ms-audit
+      MS_AUDIT_PORT: ${MS_AUDIT_PORT:-50051}
+      MS_AGENT_HOST: ms-agent
+      MS_AGENT_PORT: ${MS_AGENT_PORT:-50053}
+      
+      # gRPC
+      GRPC_PORT: ${MS_SCHEDULE_PORT:-50055}
+      
+      # Настройки
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      TIMEZONE: Asia/Vladivostok
+      CACHE_ENABLED: "true"
+      CACHE_TTL: 3600
+    ports:
+      - "${MS_SCHEDULE_PORT:-50055}:${MS_SCHEDULE_PORT:-50055}"  # gRPC
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - university-network
+    volumes:
+      - ./ms-schedule:/app
+      - schedule_exports:/app/exports
+    restart: unless-stopped
+
+  # ============ МИКРОСЕРВИС БАЗОВЫХ СУЩНОСТЕЙ ============
+  ms-core:
+    build:
+      context: ./ms-core
+      dockerfile: Dockerfile
+    container_name: ms-core
+    environment:
+      # База данных
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${POSTGRES_DB:-university_db}
+      DB_USER: ${POSTGRES_USER:-university_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-university_pass_secure_2024}
+      DB_POOL_MIN: 2
+      DB_POOL_MAX: 10
+      
+      # Redis
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_pass_secure_2024}
+      
+      # RPC клиенты
+      MS_AUTH_HOST: ms-auth
+      MS_AUTH_PORT: ${MS_AUTH_PORT:-50052}
+      
+      # gRPC
+      GRPC_PORT: ${MS_CORE_PORT:-50054}
+      GRPC_MAX_WORKERS: 10
+      
+      # Настройки
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      CACHE_ENABLED: "true"
+      CACHE_TTL: 3600
+    ports:
+      - "${MS_CORE_PORT:-50054}:${MS_CORE_PORT:-50054}"  # gRPC
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ms-auth:
+        condition: service_started
+    networks:
+      - university-network
+    volumes:
+      - ./ms-core:/app
+      - course_loads_uploads:/app/uploads
+    restart: unless-stopped
+
+  # ============ МИКРОСЕРВИС LMS ============
+  ms-lms:
+    build:
+      context: ./ms-lms
+      dockerfile: Dockerfile
+    container_name: ms-lms
+    environment:
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${POSTGRES_DB:-university_db}
+      DB_USER: ${POSTGRES_USER:-university_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-university_pass_secure_2024}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_pass_secure_2024}
+      GRPC_PORT: ${MS_LMS_PORT:-50061}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+    ports:
+      - "${MS_LMS_PORT:-50061}:${MS_LMS_PORT:-50061}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - university-network
+    volumes:
+      - ./ms-lms:/app
+    restart: unless-stopped
+
+  # ============ МИКРОСЕРВИС TICKETS ============
+  ms-tickets:
+    build:
+      context: ./ms-tickets
+      dockerfile: Dockerfile
+    container_name: ms-tickets
+    environment:
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${POSTGRES_DB:-university_db}
+      DB_USER: ${POSTGRES_USER:-university_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-university_pass_secure_2024}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_pass_secure_2024}
+      GRPC_PORT: ${MS_TICKETS_PORT:-50056}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+    ports:
+      - "${MS_TICKETS_PORT:-50056}:${MS_TICKETS_PORT:-50056}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - university-network
+    volumes:
+      - ./ms-tickets:/app
+    restart: unless-stopped
+
+  # ============ МИКРОСЕРВИС EVENTS ============
+  ms-events:
+    build:
+      context: ./ms-events
+      dockerfile: Dockerfile
+    container_name: ms-events
+    environment:
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${POSTGRES_DB:-university_db}
+      DB_USER: ${POSTGRES_USER:-university_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-university_pass_secure_2024}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_pass_secure_2024}
+      GRPC_PORT: ${MS_EVENTS_PORT:-50057}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+    ports:
+      - "${MS_EVENTS_PORT:-50057}:${MS_EVENTS_PORT:-50057}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - university-network
+    volumes:
+      - ./ms-events:/app
+    restart: unless-stopped
+
+  # ============ МИКРОСЕРВИС LIBRARY ============
+  ms-library:
+    build:
+      context: ./ms-library
+      dockerfile: Dockerfile
+    container_name: ms-library
+    environment:
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${POSTGRES_DB:-university_db}
+      DB_USER: ${POSTGRES_USER:-university_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-university_pass_secure_2024}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_pass_secure_2024}
+      GRPC_PORT: ${MS_LIBRARY_PORT:-50058}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+    ports:
+      - "${MS_LIBRARY_PORT:-50058}:${MS_LIBRARY_PORT:-50058}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - university-network
+    volumes:
+      - ./ms-library:/app
+    restart: unless-stopped
+
+  # ============ МИКРОСЕРВИС DOCUMENTS ============
+  ms-documents:
+    build:
+      context: ./ms-documents
+      dockerfile: Dockerfile
+    container_name: ms-documents
+    environment:
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${POSTGRES_DB:-university_db}
+      DB_USER: ${POSTGRES_USER:-university_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-university_pass_secure_2024}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_pass_secure_2024}
+      GRPC_PORT: ${MS_DOCUMENTS_PORT:-50059}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+    ports:
+      - "${MS_DOCUMENTS_PORT:-50059}:${MS_DOCUMENTS_PORT:-50059}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - university-network
+    volumes:
+      - ./ms-documents:/app
+    restart: unless-stopped
+
+  # ============ МИКРОСЕРВИС CAFETERIA ============
+  ms-cafeteria:
+    build:
+      context: ./ms-cafeteria
+      dockerfile: Dockerfile
+    container_name: ms-cafeteria
+    environment:
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${POSTGRES_DB:-university_db}
+      DB_USER: ${POSTGRES_USER:-university_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-university_pass_secure_2024}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_pass_secure_2024}
+      GRPC_PORT: ${MS_CAFETERIA_PORT:-50060}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+    ports:
+      - "${MS_CAFETERIA_PORT:-50060}:${MS_CAFETERIA_PORT:-50060}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - university-network
+    volumes:
+      - ./ms-cafeteria:/app
+    restart: unless-stopped
+
+  # ============ API GATEWAY ============
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    container_name: gateway
+    environment:
+      # Микросервисы
+      MS_AUTH_HOST: ms-auth
+      MS_AUTH_PORT: ${MS_AUTH_PORT:-50052}
+      MS_AUDIT_HOST: ms-audit
+      MS_AUDIT_PORT: ${MS_AUDIT_PORT:-50051}
+      MS_AGENT_HOST: ms-agent
+      MS_AGENT_PORT: ${MS_AGENT_PORT:-50053}
+      MS_CORE_HOST: ms-core
+      MS_CORE_PORT: ${MS_CORE_PORT:-50054}
+      MS_SCHEDULE_HOST: ms-schedule
+      MS_SCHEDULE_PORT: ${MS_SCHEDULE_PORT:-50055}
+      MS_LMS_HOST: ms-lms
+      MS_LMS_PORT: ${MS_LMS_PORT:-50061}
+      MS_TICKETS_HOST: ms-tickets
+      MS_TICKETS_PORT: ${MS_TICKETS_PORT:-50056}
+      MS_EVENTS_HOST: ms-events
+      MS_EVENTS_PORT: ${MS_EVENTS_PORT:-50057}
+      MS_LIBRARY_HOST: ms-library
+      MS_LIBRARY_PORT: ${MS_LIBRARY_PORT:-50058}
+      MS_DOCUMENTS_HOST: ms-documents
+      MS_DOCUMENTS_PORT: ${MS_DOCUMENTS_PORT:-50059}
+      MS_CAFETERIA_HOST: ms-cafeteria
+      MS_CAFETERIA_PORT: ${MS_CAFETERIA_PORT:-50060}
+      
+      # База данных (для аутентификации)
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${POSTGRES_DB:-university_db}
+      DB_USER: ${POSTGRES_USER:-university_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-university_pass_secure_2024}
+      
+      # Redis
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_pass_secure_2024}
+      
+      # JWT (для валидации)
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_EXPIRE_MINUTES: 1440
+      
+      # Настройки
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+    ports:
+      - "${GATEWAY_PORT:-8000}:8000"  # HTTP API
+    depends_on:
+      - ms-auth
+      - ms-audit
+      - ms-agent
+      - ms-core
+      - ms-schedule
+      - ms-lms
+      - ms-tickets
+      - ms-events
+      - ms-library
+      - ms-documents
+      - ms-cafeteria
+      - postgres
+      - redis
+    networks:
+      - university-network
+    volumes:
+      - ./gateway:/app
+    restart: unless-stopped
+
+  # ============ PROMETHEUS (Мониторинг) ============
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: university-prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    networks:
+      - university-network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+
+  # ============ GRAFANA (Визуализация) ============
+  grafana:
+    image: grafana/grafana:latest
+    container_name: university-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: ""
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards
+    networks:
+      - university-network
+    depends_on:
+      - prometheus
+
+networks:
+  university-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+  course_loads_uploads:  # Для загрузки Excel файлов с нагрузкой
+  schedule_exports:      # Для экспортов расписания (Excel/PDF/iCal)

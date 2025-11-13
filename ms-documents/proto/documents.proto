@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package documents;
+
+service DocumentsService {
+    rpc RequestDocument(RequestDocumentRequest) returns (DocumentRequestResponse);
+    rpc GetRequest(GetRequestRequest) returns (DocumentRequestResponse);
+    rpc ListRequests(ListRequestsRequest) returns (RequestsListResponse);
+    rpc UpdateRequestStatus(UpdateStatusRequest) returns (UpdateStatusResponse);
+    rpc DownloadDocument(DownloadRequest) returns (DownloadResponse);
+    rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+message DocumentRequest {
+    int32 id = 1;
+    string document_type = 2;  // certificate, transcript, etc.
+    string purpose = 3;
+    string status = 4;  // pending, processing, ready, completed
+    int32 requested_by = 5;
+    string requested_by_name = 6;
+    string requested_at = 7;
+    string processed_at = 8;
+    string file_path = 9;
+    string notes = 10;
+}
+
+message RequestDocumentRequest {
+    string document_type = 1;
+    string purpose = 2;
+    int32 requested_by = 3;
+    string notes = 4;
+}
+
+message GetRequestRequest {
+    int32 id = 1;
+}
+
+message ListRequestsRequest {
+    int32 page = 1;
+    int32 page_size = 2;
+    int32 requested_by = 3;
+    string status = 4;
+    string document_type = 5;
+}
+
+message UpdateStatusRequest {
+    int32 id = 1;
+    string status = 2;
+    string file_path = 3;
+    string notes = 4;
+}
+
+message DownloadRequest {
+    int32 id = 1;
+}
+
+message DocumentRequestResponse {
+    DocumentRequest request = 1;
+    string message = 2;
+}
+
+message RequestsListResponse {
+    repeated DocumentRequest requests = 1;
+    int32 total_count = 2;
+}
+
+message UpdateStatusResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message DownloadResponse {
+    bool success = 1;
+    bytes file_data = 2;
+    string file_name = 3;
+    string message = 4;
+}
+
+message HealthCheckRequest {}
+message HealthCheckResponse {
+    string status = 1;
+    string version = 2;
+    string timestamp = 3;
+}
+

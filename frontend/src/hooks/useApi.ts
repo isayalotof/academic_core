@@ -1,7 +1,17 @@
 import axios, { AxiosInstance, InternalAxiosRequestConfig, AxiosError } from 'axios'
 import { useAuthStore } from '../store/authStore'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+// Получаем API URL из переменных окружения
+const API_URL = import.meta.env.VITE_API_URL
+
+if (!API_URL) {
+  console.error('❌ VITE_API_URL не установлена!')
+  console.error('Установите переменную окружения VITE_API_URL в .env файле')
+  console.error('Текущие env переменные:', import.meta.env)
+  throw new Error('VITE_API_URL не установлена. Проверьте .env файл.')
+}
+
+console.log('✅ API URL установлен:', API_URL)
 
 // Флаг для предотвращения множественных одновременных запросов на обновление токена
 let isRefreshing = false

@@ -131,7 +131,13 @@ export const useAuthStore = create<AuthState>()(
 
         try {
           // Проверяем токен через API
-          const response = await fetch(`${import.meta.env.VITE_API_URL}/api/auth/me`, {
+          const apiUrl = import.meta.env.VITE_API_URL
+          if (!apiUrl) {
+            console.error('❌ VITE_API_URL не установлена в authStore')
+            set({ user: null, token: null, refreshToken: null, tokenExpiresAt: null, isLoading: false })
+            return
+          }
+          const response = await fetch(`${apiUrl}/api/auth/me`, {
             headers: {
               'Authorization': `Bearer ${get().token}`,
             },
@@ -157,7 +163,7 @@ export const useAuthStore = create<AuthState>()(
             const refreshed = await get().refreshAccessToken()
             if (refreshed) {
               // Повторяем запрос с новым токеном
-              const retryResponse = await fetch(`${import.meta.env.VITE_API_URL}/api/auth/me`, {
+              const retryResponse = await fetch(`${apiUrl}/api/auth/me`, {
                 headers: {
                   'Authorization': `Bearer ${get().token}`,
                 },
@@ -200,7 +206,12 @@ export const useAuthStore = create<AuthState>()(
         }
 
         try {
-          const response = await fetch(`${import.meta.env.VITE_API_URL}/api/auth/refresh`, {
+          const apiUrl = import.meta.env.VITE_API_URL
+          if (!apiUrl) {
+            console.error('❌ VITE_API_URL не установлена в refreshAccessToken')
+            return false
+          }
+          const response = await fetch(`${apiUrl}/api/auth/refresh`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

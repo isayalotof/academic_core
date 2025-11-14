@@ -42,7 +42,7 @@ tests/
 logs/
 
 # Environment
-.env
+# .env is needed for frontend build, so it's not ignored
 .env.local
 
 # OS

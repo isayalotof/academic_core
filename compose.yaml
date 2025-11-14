@@ -521,9 +521,12 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+        VITE_MAX_BOT_TOKEN: ${VITE_MAX_BOT_TOKEN:-}
     container_name: university-frontend
     environment:
-      VITE_API_URL: ${VITE_API_URL:-http://localhost/api}
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
       NODE_ENV: ${NODE_ENV:-production}
     networks:
       - university-network

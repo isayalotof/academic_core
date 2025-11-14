@@ -10,12 +10,22 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-# Загрузка переменных окружения из .env файла (для локальной разработки)
-env_path = Path(__file__).parent / '.env'
+# Загрузка переменных окружения из корневого .env файла
+# Сначала пробуем корневой .env (на уровень выше), затем локальный
+root_env_path = Path(__file__).parent.parent / '.env'
+local_env_path = Path(__file__).parent / '.env'
 env_loaded = False
 try:
     from dotenv import load_dotenv
-    if env_path.exists():
+    # Пробуем загрузить корневой .env
+    if root_env_path.exists():
+        env_path = root_env_path
+    elif local_env_path.exists():
+        env_path = local_env_path
+    else:
+        env_path = None
+    
+    if env_path and env_path.exists():
         # Пробуем разные кодировки
         for encoding in ['utf-8', 'utf-8-sig', 'cp1251', 'latin-1']:
             try:
@@ -62,7 +72,7 @@ try:
                 except Exception as e:
                     logging.error(f"✗ Ошибка при прямом чтении .env файла: {e}")
     else:
-        logging.warning(f"⚠ .env файл не найден: {env_path}")
+        logging.warning(f"⚠ .env файл не найден. Искали в: {root_env_path} и {local_env_path}")
 except ImportError:
     # python-dotenv не установлен, используем только переменные окружения системы
     logging.warning("⚠ python-dotenv не установлен, используем только системные переменные окружения")

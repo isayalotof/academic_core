@@ -230,6 +230,13 @@ class MoveToEmptySlotTool(Tool):
     
     def execute(self, lesson_id: int, day_of_week: int, time_slot: int, **kwargs) -> Dict[str, Any]:
         """Выполнить перемещение"""
+        # КРИТИЧЕСКАЯ ПРОВЕРКА: Воскресенье (0 или 7) ЗАПРЕЩЕНО!
+        if day_of_week == 0 or day_of_week == 7 or day_of_week < 1 or day_of_week > 6:
+            return {
+                "success": False,
+                "error": f"Invalid day_of_week={day_of_week}. Only days 1-6 (Monday-Saturday) are allowed. Sunday (0 or 7) is FORBIDDEN!"
+            }
+        
         # Сохранить для rollback
         self.schedule_state.save_checkpoint()
         

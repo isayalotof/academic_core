@@ -29,12 +29,15 @@ class AgentServicer:
     def GenerateSchedule(self, request, context):
         """Запустить генерацию расписания"""
         try:
+            demo_mode = True
+            
             result = agent_orchestrator.start_generation(
                 semester=request.semester,
                 max_iterations=request.max_iterations if request.max_iterations else None,
                 skip_stage1=request.skip_stage1,
                 skip_stage2=request.skip_stage2,
-                created_by=request.created_by if request.created_by else None
+                created_by=request.created_by if request.created_by else None,
+                demo_mode=demo_mode
             )
             
             if result['success']:
@@ -101,6 +104,27 @@ class AgentServicer:
                     {},
                     fetch=True
                 )
+                # Добавляем недостающие поля из БД
+                for s in schedules:
+                    if 'week_type' not in s:
+                        s['week_type'] = 'both'
+                    # КРИТИЧНО: Проверяем semester и academic_year из БД
+                    semester_val = s.get('semester')
+                    academic_year_val = s.get('academic_year')
+                    if semester_val is None or (isinstance(semester_val, str) and not semester_val.strip()):
+                        logger.warning(
+                            f"Schedule id={s.get('id')}: semester is None or empty in DB! "
+                            f"Full record: {s}"
+                        )
+                    if not academic_year_val or (isinstance(academic_year_val, str) and not academic_year_val.strip()):
+                        logger.warning(
+                            f"Schedule id={s.get('id')}: academic_year is empty in DB! "
+                            f"Full record: {s}"
+                        )
+                    if 'semester' not in s:
+                        s['semester'] = None
+                    if 'academic_year' not in s:
+                        s['academic_year'] = None
             else:
                 schedules = []
             
@@ -555,20 +579,74 @@ class AgentServicer:
         if agent_pb2 is None:
             return None
         
-        return agent_pb2.Schedule(
-            id=s['id'],
-            course_load_id=s['course_load_id'],
-            day_of_week=s['day_of_week'],
-            time_slot=s['time_slot'],
-            classroom_id=s.get('classroom_id', 0) or 0,
-            classroom_name=s.get('classroom_name', '') or '',
-            teacher_id=s['teacher_id'],
-            teacher_name=s['teacher_name'],
-            group_id=s['group_id'],
-            group_name=s['group_name'],
-            discipline_name=s['discipline_name'],
-            lesson_type=s['lesson_type'],
-            generation_id=s.get('generation_id', 0) or 0,
-            is_active=s.get('is_active', False)
-        )
+        # Логируем для отладки первые несколько записей
+        if s.get('id', 0) <= 110:  # Логируем первые записи
+            logger.info(f"_build_schedule_message: id={s.get('id')}, group_id from DB={s.get('group_id')}, type={type(s.get('group_id'))}")
+        
+        # Проверяем наличие полей в protobuf (могут отсутствовать в старых версиях)
+        # Важно: group_id может быть None в БД, нужно обработать это
+        group_id = s.get('group_id')
+        if group_id is None:
+            group_id = 0
+        elif isinstance(group_id, str):
+            try:
+                group_id = int(group_id)
+            except (ValueError, TypeError):
+                group_id = 0
+        
+        schedule_kwargs = {
+            'id': s['id'],
+            'course_load_id': s.get('course_load_id', 0) or 0,
+            'day_of_week': s['day_of_week'],
+            'time_slot': s['time_slot'],
+            'classroom_id': s.get('classroom_id', 0) or 0,
+            'classroom_name': s.get('classroom_name', '') or '',
+            'teacher_id': s['teacher_id'],
+            'teacher_name': s.get('teacher_name', '') or '',
+            'group_id': group_id,
+            'group_name': s.get('group_name', '') or '',
+            'discipline_name': s.get('discipline_name', '') or '',
+            'lesson_type': s.get('lesson_type', '') or '',
+            'generation_id': s.get('generation_id', 0) or 0,
+            'is_active': s.get('is_active', False)
+        }
+        
+        # Добавляем опциональные поля, если они есть в protobuf
+        if hasattr(agent_pb2.Schedule, 'week_type'):
+            schedule_kwargs['week_type'] = s.get('week_type', 'both') or 'both'
+        
+        # КРИТИЧНО: Добавляем semester и academic_year
+        # Эти поля теперь есть в обновленном protobuf определении (field 15 и 16)
+        schedule_semester = s.get('semester')
+        if schedule_semester is not None and schedule_semester > 0:
+            schedule_kwargs['semester'] = schedule_semester
+        else:
+            # Если semester отсутствует или равен 0/None, используем значение по умолчанию
+            logger.warning(f"Schedule id={s.get('id')}: semester is None/0 in DB ({schedule_semester}), using default 1")
+            schedule_kwargs['semester'] = 1
+        
+        academic_year_val = s.get('academic_year', '') or ''
+        if academic_year_val and academic_year_val.strip():
+            schedule_kwargs['academic_year'] = academic_year_val.strip()
+        else:
+            # Если academic_year отсутствует, используем значение по умолчанию
+            logger.warning(f"Schedule id={s.get('id')}: academic_year is empty in DB ('{academic_year_val}'), using default 2025/2026")
+            schedule_kwargs['academic_year'] = '2025/2026'
+        
+        # Добавляем week_type, если его нет
+        if 'week_type' not in schedule_kwargs:
+            schedule_kwargs['week_type'] = s.get('week_type', 'both') or 'both'
+        
+        # Логируем для отладки первые несколько записей
+        if s.get('id') and s.get('id') <= 1300:
+            logger.info(f"_build_schedule_message: id={s.get('id')}, semester={schedule_kwargs.get('semester')}, academic_year={schedule_kwargs.get('academic_year')}")
+        
+        # Создаем protobuf сообщение
+        schedule_msg = agent_pb2.Schedule(**schedule_kwargs)
+        
+        # Логируем для отладки первые несколько записей
+        if schedule_msg.id <= 110:
+            logger.info(f"_build_schedule_message result: id={schedule_msg.id}, group_id={schedule_msg.group_id}, teacher_id={schedule_msg.teacher_id}")
+        
+        return schedule_msg
 

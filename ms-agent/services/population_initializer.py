@@ -51,7 +51,7 @@ class PopulationInitializer:
         
         for i in range(size):
             attempts = 0
-            max_attempts = 100
+            max_attempts = 200  # Увеличено с 100 до 200
             
             while attempts < max_attempts:
                 try:
@@ -73,8 +73,14 @@ class PopulationInitializer:
             if attempts >= max_attempts:
                 logger.warning(
                     f"Failed to create valid chromosome {i + 1} "
-                    f"after {max_attempts} attempts"
+                    f"after {max_attempts} attempts. Adding anyway for evolution."
                 )
+                # Добавить даже невалидную хромосому - эволюция может исправить
+                try:
+                    chromosome = self._create_random_chromosome()
+                    population.append(chromosome)
+                except Exception as e:
+                    logger.error(f"Failed to create chromosome at all: {e}")
         
         logger.info(f"Created {len(population)} valid chromosomes")
         
@@ -82,14 +88,27 @@ class PopulationInitializer:
     
     def _create_random_chromosome(self) -> Chromosome:
         """
-        Создать случайное расписание
+        Создать случайное расписание с учетом ограничений
         
         Для каждой course_load из Excel:
         - lessons_per_week пар в неделю
         - 16 недель
         - Итого: lessons_per_week × 16 пар
+        
+        Алгоритм: размещаем занятия с учетом ограничений (максимум 4 пары в день)
         """
         lessons = []
+        
+        # Отслеживание занятости слотов для каждой недели
+        # {(week, day, slot): set((teacher_id, group_id, classroom_id))}
+        occupied_slots = {}
+        
+        # Отслеживание количества пар в день для каждой недели
+        # {(week, day, teacher_id): count} и {(week, day, group_id): count}
+        teacher_day_count = {}
+        group_day_count = {}
+        
+        MAX_LESSONS_PER_DAY = 4
         
         for course_load in self.course_loads:
             # Сколько пар в неделю (вычислено парсером из часов!)
@@ -106,28 +125,109 @@ class PopulationInitializer:
             for week in range(1, self.WEEKS_IN_SEMESTER + 1):
                 # Создать lessons_per_week пар
                 for _ in range(lessons_per_week):
-                    # Случайный слот
-                    day = random.randint(1, self.DAYS_PER_WEEK)
-                    slot = random.randint(1, self.SLOTS_PER_DAY)
+                    # Попытаться найти свободный слот
+                    attempts = 0
+                    max_slot_attempts = 100
+                    placed = False
                     
-                    # Случайная подходящая аудитория
-                    classroom = self._select_classroom(course_load)
+                    while attempts < max_slot_attempts and not placed:
+                        # Случайный слот
+                        day = random.randint(1, self.DAYS_PER_WEEK)
+                        slot = random.randint(1, self.SLOTS_PER_DAY)
+                        
+                        key = (week, day, slot)
+                        
+                        # Проверить конфликты
+                        if key in occupied_slots:
+                            # Проверить, нет ли конфликта с этим преподавателем/группой/аудиторией
+                            conflicts = occupied_slots[key]
+                            has_conflict = False
+                            
+                            for (t_id, g_id, c_id) in conflicts:
+                                if t_id == teacher_id or g_id == group_id:
+                                    has_conflict = True
+                                    break
+                            
+                            if has_conflict:
+                                attempts += 1
+                                continue
+                        
+                        # Проверить максимум пар в день
+                        teacher_key = (week, day, teacher_id)
+                        group_key = (week, day, group_id)
+                        
+                        if teacher_day_count.get(teacher_key, 0) >= MAX_LESSONS_PER_DAY:
+                            attempts += 1
+                            continue
+                        
+                        if group_day_count.get(group_key, 0) >= MAX_LESSONS_PER_DAY:
+                            attempts += 1
+                            continue
+                        
+                        # Случайная подходящая аудитория
+                        classroom = self._select_classroom(course_load)
+                        classroom_id = classroom.get('id', 0)
+                        
+                        # Проверить конфликт аудитории
+                        if key in occupied_slots:
+                            for (t_id, g_id, c_id) in occupied_slots[key]:
+                                if c_id == classroom_id and c_id != 0:
+                                    has_conflict = True
+                                    break
+                            
+                            if has_conflict:
+                                attempts += 1
+                                continue
+                        
+                        # Разместить занятие
+                        lesson = Lesson(
+                            course_load_id=course_load.get('id', 0),
+                            discipline_name=course_load.get('discipline_name', ''),
+                            lesson_type=course_load.get('lesson_type', 'Практика'),
+                            group_id=group_id,
+                            group_name=course_load.get('group_name', ''),
+                            teacher_id=teacher_id,
+                            teacher_name=course_load.get('teacher_name', ''),
+                            classroom_id=classroom_id,
+                            day=day,
+                            slot=slot,
+                            week=week
+                        )
+                        
+                        lessons.append(lesson)
+                        
+                        # Обновить отслеживание
+                        if key not in occupied_slots:
+                            occupied_slots[key] = set()
+                        occupied_slots[key].add((teacher_id, group_id, classroom_id))
+                        
+                        teacher_day_count[teacher_key] = teacher_day_count.get(teacher_key, 0) + 1
+                        group_day_count[group_key] = group_day_count.get(group_key, 0) + 1
+                        
+                        placed = True
                     
-                    lesson = Lesson(
-                        course_load_id=course_load.get('id', 0),
-                        discipline_name=course_load.get('discipline_name', ''),
-                        lesson_type=course_load.get('lesson_type', 'Практика'),
-                        group_id=group_id,
-                        group_name=course_load.get('group_name', ''),
-                        teacher_id=teacher_id,
-                        teacher_name=course_load.get('teacher_name', ''),
-                        classroom_id=classroom.get('id', 0),
-                        day=day,
-                        slot=slot,
-                        week=week
-                    )
-                    
-                    lessons.append(lesson)
+                    # Если не удалось разместить после всех попыток, разместить в случайном месте
+                    # (валидация потом отфильтрует)
+                    if not placed:
+                        day = random.randint(1, self.DAYS_PER_WEEK)
+                        slot = random.randint(1, self.SLOTS_PER_DAY)
+                        classroom = self._select_classroom(course_load)
+                        
+                        lesson = Lesson(
+                            course_load_id=course_load.get('id', 0),
+                            discipline_name=course_load.get('discipline_name', ''),
+                            lesson_type=course_load.get('lesson_type', 'Практика'),
+                            group_id=group_id,
+                            group_name=course_load.get('group_name', ''),
+                            teacher_id=teacher_id,
+                            teacher_name=course_load.get('teacher_name', ''),
+                            classroom_id=classroom.get('id', 0),
+                            day=day,
+                            slot=slot,
+                            week=week
+                        )
+                        
+                        lessons.append(lesson)
         
         return Chromosome(lessons)
     

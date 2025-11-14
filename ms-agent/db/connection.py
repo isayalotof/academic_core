@@ -93,6 +93,7 @@ class DatabasePool:
                 
                 if fetch:
                     results = cur.fetchall()
+                    conn.commit()  # Коммитим транзакцию даже при fetch=True
                     return [dict(row) for row in results] if results else []
                 else:
                     conn.commit()

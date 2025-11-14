@@ -33,6 +33,7 @@ class TicketsServicer(tickets_pb2_grpc.TicketsServiceServicer):
                 description=request.description,
                 category=request.category,
                 created_by=request.created_by,
+                created_by_name=request.created_by_name or '',
                 priority=request.priority or 3
             )
             return tickets_pb2.TicketResponse(ticket=ticket, message="Ticket created successfully")
@@ -60,11 +61,16 @@ class TicketsServicer(tickets_pb2_grpc.TicketsServiceServicer):
     def ListTickets(self, request, context):
         """List tickets"""
         try:
+            # В protobuf int32 по умолчанию равен 0, поэтому 0 означает "не фильтровать"
+            # Преобразуем 0 в None для service слоя
+            created_by = request.created_by if request.created_by > 0 else None
+            assigned_to = request.assigned_to if request.assigned_to > 0 else None
+            
             tickets, total = self.ticket_service.list_tickets(
                 page=request.page or 1,
                 page_size=request.page_size or 50,
-                created_by=request.created_by if request.created_by else None,
-                assigned_to=request.assigned_to if request.assigned_to else None,
+                created_by=created_by,
+                assigned_to=assigned_to,
                 status=request.status if request.status else None,
                 category=request.category if request.category else None
             )

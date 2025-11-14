@@ -8,12 +8,14 @@ INSERT_SCHEDULE = """
         course_load_id, day_of_week, time_slot,
         classroom_id, classroom_name,
         teacher_id, teacher_name, group_id, group_name,
-        discipline_name, lesson_type, generation_id, is_active
+        discipline_name, lesson_type, generation_id, is_active,
+        semester, academic_year
     ) VALUES (
         %(course_load_id)s, %(day_of_week)s, %(time_slot)s,
         %(classroom_id)s, %(classroom_name)s,
         %(teacher_id)s, %(teacher_name)s, %(group_id)s, %(group_name)s,
-        %(discipline_name)s, %(lesson_type)s, %(generation_id)s, %(is_active)s
+        %(discipline_name)s, %(lesson_type)s, %(generation_id)s, %(is_active)s,
+        %(semester)s, %(academic_year)s
     )
     RETURNING id
 """
@@ -34,12 +36,17 @@ UPDATE_SCHEDULE_CLASSROOM = """
     WHERE id = %(id)s
 """
 
-# Получить активное расписание
+# Получить активное расписание (только последнее сгенерированное)
 SELECT_ACTIVE_SCHEDULES = """
-    SELECT *
-    FROM schedules
-    WHERE is_active = true
-    ORDER BY day_of_week, time_slot, teacher_name
+    SELECT s.*
+    FROM schedules s
+    INNER JOIN (
+        SELECT MAX(generation_id) as max_generation_id
+        FROM schedules
+        WHERE is_active = true AND generation_id IS NOT NULL
+    ) latest ON s.generation_id = latest.max_generation_id
+    WHERE s.is_active = true
+    ORDER BY s.day_of_week, s.time_slot, s.teacher_name
 """
 
 # Получить расписание по generation_id
@@ -178,7 +185,8 @@ BULK_INSERT_SCHEDULES = """
         course_load_id, day_of_week, time_slot,
         classroom_id, classroom_name,
         teacher_id, teacher_name, group_id, group_name,
-        discipline_name, lesson_type, generation_id, is_active
+        discipline_name, lesson_type, generation_id, is_active,
+        semester, academic_year
     )
     SELECT 
         unnest(%(course_load_ids)s::int[]),
@@ -193,6 +201,8 @@ BULK_INSERT_SCHEDULES = """
         unnest(%(discipline_names)s::text[]),
         unnest(%(lesson_types)s::text[]),
         %(generation_id)s,
-        %(is_active)s
+        %(is_active)s,
+        %(semester)s,
+        %(academic_year)s
 """
 

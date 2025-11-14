@@ -132,11 +132,40 @@ class GigaChatClient:
         
         # Добавить функции если есть
         if functions:
-            payload['functions'] = functions
-            payload['function_call'] = function_call
+            # GigaChat API формат функций (может отличаться от OpenAI)
+            # Проверим, что функции в правильном формате
+            validated_functions = []
+            for func in functions:
+                # Убедимся, что функция имеет правильный формат
+                if isinstance(func, dict) and 'name' in func:
+                    validated_functions.append(func)
+                else:
+                    logger.warning(f"Invalid function format: {func}")
+            
+            if validated_functions:
+                payload['functions'] = validated_functions
+                # function_call может быть строкой "auto" или объектом
+                if function_call == "auto":
+                    payload['function_call'] = "auto"
+                elif isinstance(function_call, dict):
+                    payload['function_call'] = function_call
+                else:
+                    payload['function_call'] = function_call
+            else:
+                logger.warning("No valid functions to send to GigaChat")
         
         try:
             logger.debug(f"🤖 GigaChat request: {len(messages)} messages, functions: {bool(functions)}")
+            
+            # Логировать payload для отладки (без токенов)
+            if logger.isEnabledFor(logging.DEBUG):
+                debug_payload = payload.copy()
+                if 'messages' in debug_payload:
+                    debug_payload['messages'] = [
+                        {**msg, 'content': msg.get('content', '')[:100] + '...' if len(msg.get('content', '')) > 100 else msg.get('content', '')}
+                        for msg in debug_payload['messages']
+                    ]
+                logger.debug(f"Payload preview: {json.dumps(debug_payload, indent=2, ensure_ascii=False)[:500]}...")
             
             response = requests.post(
                 f'{self.BASE_URL}/chat/completions',
@@ -145,6 +174,11 @@ class GigaChatClient:
                 verify=False,  # Отключаем проверку SSL для корпоративных сертификатов
                 timeout=60
             )
+            
+            # Логировать ответ при ошибке
+            if response.status_code != 200:
+                logger.error(f"GigaChat API returned {response.status_code}: {response.text[:500]}")
+            
             response.raise_for_status()
             
             result = response.json()
@@ -156,6 +190,7 @@ class GigaChatClient:
         except requests.exceptions.HTTPError as e:
             error_text = e.response.text if e.response else str(e)
             logger.error(f"❌ GigaChat API error: {error_text}")
+            logger.error(f"Request payload: {json.dumps(payload, indent=2, ensure_ascii=False)}")
             raise
         except Exception as e:
             logger.error(f"❌ GigaChat request failed: {e}")

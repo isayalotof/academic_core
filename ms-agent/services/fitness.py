@@ -62,6 +62,13 @@ class FitnessCalculator:
         details['conflicts'] = conflicts
         details['hard_constraints_score'] = hard_score
         
+        # 1.1. Максимум 4 пары в день (ЖЁСТКОЕ ОГРАНИЧЕНИЕ - ЗАКОН!)
+        max_lessons_violations = self._check_max_lessons_per_day(schedule)
+        max_lessons_score = max_lessons_violations * -10000
+        score += max_lessons_score
+        details['max_lessons_violations'] = max_lessons_violations
+        details['max_lessons_score'] = max_lessons_score
+        
         # 2. Soft Constraint #1: Предпочтения преподавателей (⭐ KEY FEATURE)
         pref_violations, pref_score = self._check_preferences(
             schedule, teacher_preferences
@@ -84,12 +91,18 @@ class FitnessCalculator:
         details['gaps'] = gaps
         details['gaps_score'] = gaps_score
         
+        # 5. Soft Constraint #4: Равномерное распределение по дням недели
+        day_distribution_penalty = self._calculate_day_distribution_penalty(schedule)
+        score += day_distribution_penalty
+        details['day_distribution_penalty'] = day_distribution_penalty
+        
         return {
             'total_score': score,
             'hard_constraints': hard_score,
             'preference_violations': pref_score,
             'isolated_lessons': isolated_score,
             'gaps': gaps_score,
+            'day_distribution': day_distribution_penalty,
             'details': details
         }
     
@@ -297,6 +310,159 @@ class FitnessCalculator:
             key = (lesson['group_id'], lesson['day_of_week'])
             result.setdefault(key, []).append(lesson)
         return result
+    
+    def _calculate_day_distribution_penalty(self, schedule: List[Dict]) -> int:
+        """
+        Вычислить штраф за неравномерное распределение пар по дням недели
+        
+        Штрафуется:
+        - Сильная неравномерность распределения для групп (все пары в один день)
+        - Сильная неравномерность распределения для преподавателей
+        
+        Returns:
+            Общий штраф (отрицательное число)
+        """
+        total_penalty = 0
+        
+        # 1. Проверить распределение по группам
+        group_schedule = self._group_by_group_day(schedule)
+        group_distributions = {}
+        
+        for (group_id, day), lessons in group_schedule.items():
+            if group_id not in group_distributions:
+                group_distributions[group_id] = {}
+            group_distributions[group_id][day] = len(lessons)
+        
+        # Для каждой группы проверить равномерность
+        for group_id, day_counts in group_distributions.items():
+            total_lessons = sum(day_counts.values())
+            if total_lessons == 0:
+                continue
+            
+            # Идеальное распределение: равномерно по всем дням
+            ideal_per_day = total_lessons / 6.0  # 6 дней в неделе
+            
+            # Вычислить дисперсию (насколько неравномерно)
+            variance = 0
+            max_day = max(day_counts.values()) if day_counts else 0
+            min_day = min(day_counts.values()) if day_counts else 0
+            
+            for day in range(1, 7):
+                actual = day_counts.get(day, 0)
+                variance += abs(actual - ideal_per_day)
+            
+            # Штраф за неравномерность
+            # Если все пары в один день - большой штраф
+            if max_day > 0 and min_day == 0 and len(day_counts) == 1:
+                # Все пары в один день - очень плохо
+                total_penalty += -50 * total_lessons
+            elif variance > ideal_per_day * 2:
+                # Сильная неравномерность
+                total_penalty += -20 * int(variance)
+            elif variance > ideal_per_day:
+                # Умеренная неравномерность
+                total_penalty += -10 * int(variance)
+        
+        # 2. Проверить распределение по преподавателям
+        teacher_schedule = self._group_by_teacher_day(schedule)
+        teacher_distributions = {}
+        
+        for (teacher_id, day), lessons in teacher_schedule.items():
+            if teacher_id not in teacher_distributions:
+                teacher_distributions[teacher_id] = {}
+            teacher_distributions[teacher_id][day] = len(lessons)
+        
+        # Для каждого преподавателя проверить равномерность
+        for teacher_id, day_counts in teacher_distributions.items():
+            total_lessons = sum(day_counts.values())
+            if total_lessons == 0:
+                continue
+            
+            ideal_per_day = total_lessons / 6.0
+            
+            variance = 0
+            max_day = max(day_counts.values()) if day_counts else 0
+            min_day = min(day_counts.values()) if day_counts else 0
+            
+            for day in range(1, 7):
+                actual = day_counts.get(day, 0)
+                variance += abs(actual - ideal_per_day)
+            
+            # Штраф за неравномерность (меньше чем для групп, т.к. для преподавателей это менее критично)
+            if max_day > 0 and min_day == 0 and len(day_counts) == 1:
+                # Все пары в один день
+                total_penalty += -30 * total_lessons
+            elif variance > ideal_per_day * 2:
+                total_penalty += -15 * int(variance)
+            elif variance > ideal_per_day:
+                total_penalty += -5 * int(variance)
+        
+        return total_penalty
+    
+    def _check_max_lessons_per_day(self, schedule: List[Dict]) -> int:
+        """
+        Проверить максимальное количество пар в день (ЖЁСТКОЕ ОГРАНИЧЕНИЕ - ЗАКОН!)
+        
+        ЖЁСТКОЕ ОГРАНИЧЕНИЕ: Не более 4 пар в день для студентов и преподавателей
+        Нарушение делает расписание неработоспособным!
+        
+        Returns:
+            Количество нарушений
+        """
+        MAX_LESSONS_PER_DAY = 4
+        violations = 0
+        
+        # 1. Проверить для групп (студентов)
+        group_day_lessons = {}  # {(group_id, day): [time_slots]}
+        for lesson in schedule:
+            group_id = lesson.get('group_id')
+            day = lesson.get('day_of_week')
+            time_slot = lesson.get('time_slot')
+            
+            if not group_id or not day or not time_slot:
+                continue
+            
+            key = (group_id, day)
+            if key not in group_day_lessons:
+                group_day_lessons[key] = []
+            group_day_lessons[key].append(time_slot)
+        
+        # Проверить превышение максимума для групп
+        for (group_id, day), time_slots in group_day_lessons.items():
+            unique_slots = len(set(time_slots))
+            if unique_slots > MAX_LESSONS_PER_DAY:
+                violations += 1
+                logger.warning(
+                    f"Hard violation: Group {group_id} has {unique_slots} "
+                    f"lessons on day {day} (max allowed: {MAX_LESSONS_PER_DAY})"
+                )
+        
+        # 2. Проверить для преподавателей
+        teacher_day_lessons = {}  # {(teacher_id, day): [time_slots]}
+        for lesson in schedule:
+            teacher_id = lesson.get('teacher_id')
+            day = lesson.get('day_of_week')
+            time_slot = lesson.get('time_slot')
+            
+            if not teacher_id or not day or not time_slot:
+                continue
+            
+            key = (teacher_id, day)
+            if key not in teacher_day_lessons:
+                teacher_day_lessons[key] = []
+            teacher_day_lessons[key].append(time_slot)
+        
+        # Проверить превышение максимума для преподавателей
+        for (teacher_id, day), time_slots in teacher_day_lessons.items():
+            unique_slots = len(set(time_slots))
+            if unique_slots > MAX_LESSONS_PER_DAY:
+                violations += 1
+                logger.warning(
+                    f"Hard violation: Teacher {teacher_id} has {unique_slots} "
+                    f"lessons on day {day} (max allowed: {MAX_LESSONS_PER_DAY})"
+                )
+        
+        return violations
     
     def calculate_improvement(
         self,

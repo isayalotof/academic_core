@@ -41,38 +41,57 @@ class TicketsClient:
             self.stub = None
             logger.warning("Proto files not available")
     
-    def create_ticket(self, title: str, description: str, category: str, created_by: int, priority: int = 3) -> Dict[str, Any]:
+    def create_ticket(self, title: str, description: str, category: str, created_by: int, created_by_name: str = '', priority: int = 3) -> Dict[str, Any]:
         """Создать тикет"""
         if not self.stub:
+            logger.error("Tickets service stub not available")
             raise Exception("Tickets service not available")
         
-        request = tickets_pb2.CreateTicketRequest(
-            title=title,
-            description=description,
-            category=category,
-            created_by=created_by,
-            priority=priority
-        )
-        
-        response = self.stub.CreateTicket(request, timeout=10)
-        
-        if not response.ticket.id:
-            raise Exception(response.message or "Failed to create ticket")
-        
-        return {
-            'id': response.ticket.id,
-            'title': response.ticket.title,
-            'description': response.ticket.description,
-            'category': response.ticket.category,
-            'status': response.ticket.status,
-            'created_by': response.ticket.created_by,
-            'created_by_name': response.ticket.created_by_name,
-            'assigned_to': response.ticket.assigned_to or 0,
-            'assigned_to_name': response.ticket.assigned_to_name or '',
-            'priority': response.ticket.priority,
-            'created_at': response.ticket.created_at,
-            'updated_at': response.ticket.updated_at
-        }
+        try:
+            logger.info(f"Creating ticket via gRPC: title='{title}', category='{category}', created_by={created_by}, created_by_name='{created_by_name}', priority={priority}")
+            
+            request = tickets_pb2.CreateTicketRequest(
+                title=title,
+                description=description,
+                category=category,
+                created_by=created_by,
+                created_by_name=created_by_name,
+                priority=priority
+            )
+            
+            logger.info(f"Sending CreateTicket request to {self.address}")
+            response = self.stub.CreateTicket(request, timeout=10)
+            logger.info(f"Received response: ticket_id={response.ticket.id if response.ticket.id else 'None'}, message='{response.message}'")
+            
+            if not response.ticket.id:
+                error_msg = response.message or "Failed to create ticket"
+                logger.error(f"Ticket creation failed: {error_msg}")
+                raise Exception(error_msg)
+            
+            result = {
+                'id': response.ticket.id,
+                'title': response.ticket.title,
+                'description': response.ticket.description,
+                'category': response.ticket.category,
+                'status': response.ticket.status,
+                'created_by': response.ticket.created_by,
+                'created_by_name': response.ticket.created_by_name,
+                'assigned_to': response.ticket.assigned_to or 0,
+                'assigned_to_name': response.ticket.assigned_to_name or '',
+                'priority': response.ticket.priority,
+                'created_at': response.ticket.created_at,
+                'updated_at': response.ticket.updated_at
+            }
+            
+            logger.info(f"Ticket created successfully: id={result['id']}")
+            return result
+            
+        except grpc.RpcError as e:
+            logger.error(f"gRPC error creating ticket: code={e.code()}, details={e.details()}", exc_info=True)
+            raise Exception(f"gRPC error: {e.details()}")
+        except Exception as e:
+            logger.error(f"Error creating ticket: {e}", exc_info=True)
+            raise
     
     def get_ticket(self, ticket_id: int) -> Optional[Dict[str, Any]]:
         """Получить тикет по ID"""
@@ -109,11 +128,13 @@ class TicketsClient:
         if not self.stub:
             raise Exception("Tickets service not available")
         
+        # В protobuf int32 по умолчанию равен 0, поэтому используем 0 для "не фильтровать"
+        # Передаем 0 если фильтр не задан (None или undefined)
         request = tickets_pb2.ListTicketsRequest(
             page=page,
             page_size=page_size,
-            created_by=created_by or 0,
-            assigned_to=assigned_to or 0,
+            created_by=created_by if created_by is not None else 0,  # 0 означает "не фильтровать"
+            assigned_to=assigned_to if assigned_to is not None else 0,  # 0 означает "не фильтровать"
             status=status or '',
             category=category or ''
         )

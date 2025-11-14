@@ -69,6 +69,11 @@ message Schedule {
     
     int32 generation_id = 13;
     bool is_active = 14;
+    
+    // Семестр и учебный год
+    int32 semester = 15;
+    string academic_year = 16;
+    string week_type = 17;
 }
 
 message GenerationHistory {

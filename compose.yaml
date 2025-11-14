@@ -475,6 +475,60 @@ services:
       - ./ms-cafeteria:/app
     restart: unless-stopped
 
+  # ============ БОТ ============
+  bot:
+    build:
+      context: ./bot
+      dockerfile: Dockerfile
+    container_name: university-bot
+    environment:
+      # Токен бота (обязательно)
+      BOT_TOKEN: ${BOT_TOKEN}
+      
+      # Имя бота (username) для открытия миниприложения (опционально)
+      BOT_USERNAME: ${BOT_USERNAME:-}
+      
+      # Настройки
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+    depends_on:
+      - gateway
+    networks:
+      - university-network
+    volumes:
+      - ./bot:/app
+    restart: unless-stopped
+
+  # ============ NGINX REVERSE PROXY ============
+  nginx:
+    image: nginx:alpine
+    container_name: university-nginx
+    ports:
+      - "${NGINX_PORT:-80}:80"
+      - "${NGINX_SSL_PORT:-443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      - gateway
+      - frontend
+    networks:
+      - university-network
+    restart: unless-stopped
+
+  # ============ FRONTEND ============
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: university-frontend
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost/api}
+      NODE_ENV: ${NODE_ENV:-production}
+    networks:
+      - university-network
+    restart: unless-stopped
+
   # ============ API GATEWAY ============
   gateway:
     build:
@@ -592,5 +646,6 @@ volumes:
   redis_data:
   prometheus_data:
   grafana_data:
+  nginx_logs:            # Для логов nginx
   course_loads_uploads:  # Для загрузки Excel файлов с нагрузкой
   schedule_exports:      # Для экспортов расписания (Excel/PDF/iCal)

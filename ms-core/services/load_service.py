@@ -308,4 +308,47 @@ class LoadService:
                 }
         finally:
             self.db_pool.return_connection(conn)
+    
+    def delete_course_load(self, load_id: int) -> Dict[str, Any]:
+        """
+        Удалить запись учебной нагрузки
+        
+        Returns:
+            Dict с результатом удаления
+        """
+        conn = self.db_pool.get_connection()
+        try:
+            with conn.cursor() as cur:
+                # Проверить существование
+                cur.execute(load_queries.GET_COURSE_LOAD_BY_ID, {'load_id': load_id})
+                existing = cur.fetchone()
+                
+                if not existing:
+                    return {
+                        'success': False,
+                        'message': f'Course load with id {load_id} not found'
+                    }
+                
+                # Удалить
+                cur.execute(load_queries.DELETE_COURSE_LOAD, {'load_id': load_id})
+                result = cur.fetchone()
+                conn.commit()
+                
+                # Очистить кэш
+                self.cache.delete_pattern("course_loads:*")
+                
+                return {
+                    'success': True,
+                    'message': f'Course load "{result[1]}" deleted successfully',
+                    'deleted_id': result[0]
+                }
+        except Exception as e:
+            logger.error(f"Error deleting course load {load_id}: {e}", exc_info=True)
+            conn.rollback()
+            return {
+                'success': False,
+                'message': f'Failed to delete course load: {str(e)}'
+            }
+        finally:
+            self.db_pool.return_connection(conn)
 

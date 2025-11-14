@@ -123,6 +123,19 @@ WHERE id = %(group_id)s
 RETURNING id, name, semester, is_active, updated_at;
 """
 
+# ============ UPDATE SIZE ============
+
+RECALCULATE_GROUP_SIZE = """
+UPDATE groups
+SET size = (
+    SELECT COUNT(*)
+    FROM students
+    WHERE group_id = %(group_id)s AND status = 'active'
+)
+WHERE id = %(group_id)s
+RETURNING id, size;
+"""
+
 # ============ DELETE ============
 
 DELETE_GROUP = """

@@ -52,6 +52,19 @@ def main():
         logger.error(f"✗ Failed to initialize database: {e}")
         sys.exit(1)
     
+    # Run database migrations
+    import os
+    if os.getenv('SKIP_MIGRATIONS', '').lower() != 'true':
+        try:
+            from db.migrations.migrate import run_migrations
+            logger.info("Running database migrations...")
+            run_migrations()
+            logger.info("✓ Migrations completed")
+        except Exception as e:
+            logger.warning(f"⚠ Migration error (continuing anyway): {e}")
+    else:
+        logger.info("Skipping migrations (SKIP_MIGRATIONS=true)")
+    
     try:
         serve()
     except Exception as e:

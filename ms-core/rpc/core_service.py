@@ -670,6 +670,73 @@ class CoreServicer(core_pb2_grpc.CoreServiceServicer):
             context.set_details(str(e))
             return core_pb2.LinkResponse(success=False)
     
+    def GetTeacherByUserId(self, request, context):
+        """Получить преподавателя по user_id"""
+        try:
+            with rpc_request_duration.labels(method='GetTeacherByUserId').time():
+                logger.info(f"GetTeacherByUserId: user_id={request.user_id}")
+                
+                result = self.teacher_service.get_teacher(
+                    user_id=request.user_id,
+                    include_preferences=False
+                )
+                
+                if not result:
+                    context.set_code(grpc.StatusCode.NOT_FOUND)
+                    context.set_details(f"Teacher not found for user_id={request.user_id}")
+                    logger.info(f"Teacher not found for user_id={request.user_id}")
+                    return core_pb2.TeacherResponse()
+                
+                teacher = self._build_teacher_message(result)
+                
+                rpc_requests_total.labels(method='GetTeacherByUserId', status='success').inc()
+                logger.info(f"✅ Found teacher {result['id']} for user_id={request.user_id}")
+                
+                return core_pb2.TeacherResponse(
+                    teacher=teacher,
+                    message="Teacher retrieved successfully"
+                )
+                
+        except Exception as e:
+            logger.error(f"GetTeacherByUserId error: {e}", exc_info=True)
+            rpc_requests_total.labels(method='GetTeacherByUserId', status='error').inc()
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(str(e))
+            return core_pb2.TeacherResponse()
+    
+    def GetStudentByUserId(self, request, context):
+        """Получить студента по user_id"""
+        try:
+            with rpc_request_duration.labels(method='GetStudentByUserId').time():
+                logger.info(f"GetStudentByUserId: user_id={request.user_id}")
+                
+                result = self.student_service.get_student(
+                    user_id=request.user_id
+                )
+                
+                if not result:
+                    context.set_code(grpc.StatusCode.NOT_FOUND)
+                    context.set_details(f"Student not found for user_id={request.user_id}")
+                    logger.info(f"Student not found for user_id={request.user_id}")
+                    return core_pb2.StudentResponse()
+                
+                student = self._build_student_message(result)
+                
+                rpc_requests_total.labels(method='GetStudentByUserId', status='success').inc()
+                logger.info(f"✅ Found student {result['id']} for user_id={request.user_id}")
+                
+                return core_pb2.StudentResponse(
+                    student=student,
+                    message="Student retrieved successfully"
+                )
+                
+        except Exception as e:
+            logger.error(f"GetStudentByUserId error: {e}", exc_info=True)
+            rpc_requests_total.labels(method='GetStudentByUserId', status='error').inc()
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(str(e))
+            return core_pb2.StudentResponse()
+    
     # ============ HEALTH CHECK ============
     
     def HealthCheck(self, request, context):
@@ -684,6 +751,16 @@ class CoreServicer(core_pb2_grpc.CoreServiceServicer):
     
     def _build_teacher_message(self, teacher_dict: dict) -> core_pb2.Teacher:
         """Построить Teacher message из dict"""
+        # Получить user_id, но обработать None правильно
+        # В protobuf int32 по умолчанию 0, но для нас 0 означает отсутствие связи
+        user_id = teacher_dict.get('user_id')
+        # Если user_id равен None, устанавливаем 0 (что означает отсутствие связи)
+        # Если user_id есть и > 0, используем его
+        if user_id is None:
+            user_id_value = 0
+        else:
+            user_id_value = int(user_id) if user_id else 0
+        
         teacher = core_pb2.Teacher(
             id=teacher_dict['id'],
             full_name=teacher_dict['full_name'],
@@ -697,7 +774,7 @@ class CoreServicer(core_pb2_grpc.CoreServiceServicer):
             position=teacher_dict.get('position', ''),
             academic_degree=teacher_dict.get('academic_degree', ''),
             department=teacher_dict.get('department', ''),
-            user_id=teacher_dict.get('user_id', 0),
+            user_id=user_id_value,
             is_active=teacher_dict.get('is_active', True),
             hire_date=teacher_dict.get('hire_date', ''),
             termination_date=teacher_dict.get('termination_date', ''),
@@ -887,5 +964,37 @@ class CoreServicer(core_pb2_grpc.CoreServiceServicer):
             context.set_details(str(e))
             return core_pb2.CourseLoadResponse()
     
-    # TODO: Добавить остальные методы (Disciplines, DeleteCourseLoad, Import)
+    def DeleteCourseLoad(self, request, context):
+        """Удалить запись учебной нагрузки"""
+        try:
+            with rpc_request_duration.labels(method='DeleteCourseLoad').time():
+                result = self.load_service.delete_course_load(request.id)
+                
+                if not result.get('success'):
+                    context.set_code(grpc.StatusCode.NOT_FOUND)
+                    context.set_details(result.get('message', 'Course load not found'))
+                    rpc_requests_total.labels(method='DeleteCourseLoad', status='not_found').inc()
+                    return core_pb2.DeleteResponse(
+                        success=False,
+                        message=result.get('message', 'Course load not found')
+                    )
+                
+                rpc_requests_total.labels(method='DeleteCourseLoad', status='success').inc()
+                
+                return core_pb2.DeleteResponse(
+                    success=True,
+                    message=result.get('message', 'Course load deleted successfully')
+                )
+                
+        except Exception as e:
+            logger.error(f"DeleteCourseLoad error: {e}", exc_info=True)
+            rpc_requests_total.labels(method='DeleteCourseLoad', status='error').inc()
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(str(e))
+            return core_pb2.DeleteResponse(
+                success=False,
+                message=f'Error: {str(e)}'
+            )
+    
+    # TODO: Добавить остальные методы (Disciplines, Import)
 

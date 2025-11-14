@@ -70,7 +70,7 @@ BEGIN
             old_values,
             changed_at
         ) VALUES (
-            OLD.id,
+            NULL,  -- schedule_id = NULL, т.к. запись уже удалена из schedules
             'deleted',
             to_jsonb(OLD),
             NOW()

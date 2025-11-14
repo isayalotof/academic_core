@@ -62,7 +62,7 @@ class AgentClient:
                 skip_stage2=data.get('skip_stage2', False),
                 created_by=data.get('created_by', 0)
             )
-            response = self.stub.GenerateSchedule(request, timeout=10)
+            response = self.stub.GenerateSchedule(request, timeout=30)
             
             if not response.success:
                 return {
@@ -136,20 +136,47 @@ class AgentClient:
     @staticmethod
     def _schedule_to_dict(s) -> Dict:
         """Convert protobuf Schedule to dict"""
-        return {
+        # Если это уже dict (из БД напрямую), возвращаем как есть
+        if isinstance(s, dict):
+            # КРИТИЧНО: Убедимся, что semester и academic_year правильно извлечены из БД
+            # Если их нет, они могут быть None или пустыми
+            if 'semester' not in s or s.get('semester') is None:
+                logger.warning(f"Schedule id={s.get('id')}: semester is missing or None in DB dict")
+            if 'academic_year' not in s or not s.get('academic_year'):
+                logger.warning(f"Schedule id={s.get('id')}: academic_year is missing or empty in DB dict")
+            return s
+        
+        # Если это protobuf объект, преобразуем
+        result = {
             'id': s.id,
-            'course_load_id': s.course_load_id,
+            'course_load_id': getattr(s, 'course_load_id', 0) or 0,
             'day_of_week': s.day_of_week,
             'time_slot': s.time_slot,
+            'week_type': getattr(s, 'week_type', 'both') or 'both',
             'classroom_id': s.classroom_id if s.classroom_id else None,
-            'classroom_name': s.classroom_name,
+            'classroom_name': getattr(s, 'classroom_name', '') or '',
             'teacher_id': s.teacher_id,
-            'teacher_name': s.teacher_name,
-            'group_id': s.group_id,
-            'group_name': s.group_name,
-            'discipline_name': s.discipline_name,
-            'lesson_type': s.lesson_type
+            'teacher_name': getattr(s, 'teacher_name', '') or '',
+            'group_id': s.group_id if hasattr(s, 'group_id') else 0,
+            'group_name': getattr(s, 'group_name', '') or '',
+            'discipline_name': getattr(s, 'discipline_name', '') or '',
+            'lesson_type': getattr(s, 'lesson_type', '') or '',
+            'generation_id': getattr(s, 'generation_id', 0) or 0,
+            'is_active': getattr(s, 'is_active', True)
         }
+        
+        # Поля semester и academic_year теперь есть в protobuf (после обновления)
+        result['semester'] = getattr(s, 'semester', None)
+        result['academic_year'] = getattr(s, 'academic_year', '') or ''
+        result['week_type'] = getattr(s, 'week_type', 'both') or 'both'
+        
+        # Если semester и academic_year отсутствуют, логируем предупреждение
+        if result.get('semester') is None:
+            logger.warning(f"Schedule id={result.get('id')}: semester is None in protobuf response")
+        if not result.get('academic_year'):
+            logger.warning(f"Schedule id={result.get('id')}: academic_year is empty in protobuf response")
+        
+        return result
     
     def close(self) -> None:
         """Close gRPC channel"""

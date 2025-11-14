@@ -1,0 +1,255 @@
+import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Container, Flex, Panel } from '@maxhub/max-ui'
+import { Typography } from '../../components/ui/Typography'
+import { Button } from '../../components/ui/Button'
+import BackButton from '../../components/BackButton'
+import { useApi } from '../../hooks/useApi'
+import { CourseLoadService, CourseLoad } from '../../services/courseLoadService'
+
+export default function CourseLoadsList() {
+  const navigate = useNavigate()
+  const api = useApi()
+  const courseLoadService = new CourseLoadService(api)
+
+  const [courseLoads, setCourseLoads] = useState<CourseLoad[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const [totalCount, setTotalCount] = useState(0)
+  const pageSize = 20
+
+  useEffect(() => {
+    loadCourseLoads()
+  }, [page])
+
+  const loadCourseLoads = async () => {
+    setIsLoading(true)
+    try {
+      const data = await courseLoadService.getCourseLoads({
+        page,
+        page_size: pageSize,
+      })
+      setCourseLoads(data.course_loads)
+      setTotalCount(data.total_count)
+    } catch (error) {
+      console.error('Failed to load course loads:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleDelete = async (loadId: number) => {
+    if (!confirm('Вы уверены, что хотите удалить эту учебную нагрузку?')) {
+      return
+    }
+
+    try {
+      await courseLoadService.deleteCourseLoad(loadId)
+      loadCourseLoads()
+    } catch (error) {
+      alert('Ошибка при удалении учебной нагрузки')
+    }
+  }
+
+  return (
+    <div style={{
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      padding: '16px',
+    }}>
+      <Container style={{ width: '100%', maxWidth: '100%' }}>
+        <Flex direction="column" gap="16px">
+          <Flex justify="space-between" align="center" style={{ width: '100%' }} wrap="wrap" gap="8px">
+            <Flex align="center" gap="8px" style={{ flex: 1, minWidth: '200px' }}>
+              <BackButton to="/" />
+              <Typography variant="h1" style={{ fontSize: '20px', fontWeight: '600', color: '#fff' }}>
+                Учебная нагрузка
+              </Typography>
+            </Flex>
+            <Button 
+              onClick={() => navigate('/admin/course-loads/create')}
+              style={{
+                background: 'rgba(255, 255, 255, 0.95)',
+                border: 'none',
+                color: '#667eea',
+                padding: '8px 16px',
+                borderRadius: '12px',
+                fontWeight: '600',
+                fontSize: '14px',
+                boxShadow: '0 4px 15px rgba(0, 0, 0, 0.2)',
+              }}
+            >
+              + Создать
+            </Button>
+          </Flex>
+
+          {isLoading ? (
+            <Panel style={{ 
+              padding: '32px', 
+              textAlign: 'center',
+              background: 'rgba(255, 255, 255, 0.95)',
+              borderRadius: '20px',
+              boxShadow: '0 8px 30px rgba(0, 0, 0, 0.2)',
+            }}>
+              <Typography style={{ color: '#666' }}>Загрузка...</Typography>
+            </Panel>
+          ) : courseLoads.length === 0 ? (
+            <Panel style={{ 
+              padding: '32px', 
+              textAlign: 'center',
+              background: 'rgba(255, 255, 255, 0.95)',
+              borderRadius: '20px',
+              boxShadow: '0 8px 30px rgba(0, 0, 0, 0.2)',
+            }}>
+              <Typography style={{ color: '#666', fontSize: '16px' }}>Учебная нагрузка не найдена</Typography>
+            </Panel>
+          ) : (
+            <>
+              <Flex direction="column" gap="12px">
+                {courseLoads.map((load) => (
+                  <Panel
+                    key={load.id}
+                    style={{
+                      padding: '20px',
+                      border: 'none',
+                      borderRadius: '20px',
+                      background: 'rgba(255, 255, 255, 0.95)',
+                      transition: 'all 0.3s ease',
+                      boxShadow: '0 8px 30px rgba(0, 0, 0, 0.2)',
+                    }}
+                    onMouseEnter={(e: any) => {
+                      e.currentTarget.style.transform = 'translateY(-4px)'
+                      e.currentTarget.style.boxShadow = '0 12px 40px rgba(0, 0, 0, 0.3)'
+                    }}
+                    onMouseLeave={(e: any) => {
+                      e.currentTarget.style.transform = 'translateY(0)'
+                      e.currentTarget.style.boxShadow = '0 8px 30px rgba(0, 0, 0, 0.2)'
+                    }}
+                  >
+                    <Flex direction="column" gap="8px">
+                      <Flex justify="space-between" align="flex-start" wrap="wrap" gap="12px">
+                        <Flex direction="column" gap="4px" style={{ flex: 1, minWidth: '200px' }}>
+                          <Typography variant="h4" style={{ fontWeight: '600', color: '#333' }}>
+                            {load.discipline_name}
+                          </Typography>
+                          {load.discipline_code && (
+                            <Typography variant="body2" style={{ color: '#666', fontSize: '14px' }}>
+                              Код: {load.discipline_code}
+                            </Typography>
+                          )}
+                          <Flex gap="12px" wrap="wrap" style={{ marginTop: '4px' }}>
+                            {load.teacher_name && (
+                              <Typography variant="body2" style={{ color: '#666', fontSize: '14px' }}>
+                                👤 {load.teacher_name}
+                              </Typography>
+                            )}
+                            {load.group_name && (
+                              <Typography variant="body2" style={{ color: '#666', fontSize: '14px' }}>
+                                👥 {load.group_name}
+                              </Typography>
+                            )}
+                          </Flex>
+                          <Typography variant="body2" style={{ color: '#999', fontSize: '12px', marginTop: '4px' }}>
+                            Семестр {load.semester} • {load.academic_year}
+                          </Typography>
+                        </Flex>
+                        <Button
+                          onClick={() => handleDelete(load.id)}
+                          style={{
+                            fontSize: '14px',
+                            padding: '10px 16px',
+                            background: 'rgba(244, 67, 54, 0.1)',
+                            border: 'none',
+                            color: '#f44336',
+                            borderRadius: '12px',
+                            fontWeight: '500',
+                          }}
+                        >
+                          Удалить
+                        </Button>
+                      </Flex>
+                      <Flex gap="12px" wrap="wrap" style={{ marginTop: '8px' }}>
+                        <Typography
+                          variant="body2"
+                          style={{
+                            padding: '4px 8px',
+                            background: '#f5f5f5',
+                            borderRadius: '4px',
+                            display: 'inline-block',
+                            fontSize: '12px',
+                          }}
+                        >
+                          {load.lesson_type}
+                        </Typography>
+                        <Typography variant="body2" style={{ color: '#666', fontSize: '14px' }}>
+                          {load.hours_per_semester} часов
+                        </Typography>
+                        {load.lessons_per_week && (
+                          <Typography variant="body2" style={{ color: '#666', fontSize: '14px' }}>
+                            {load.lessons_per_week} пар/неделю
+                          </Typography>
+                        )}
+                      </Flex>
+                      {load.classroom_requirements && (
+                        <Typography variant="body2" style={{ color: '#999', fontSize: '12px', marginTop: '4px' }}>
+                          Требования: {load.classroom_requirements}
+                        </Typography>
+                      )}
+                    </Flex>
+                  </Panel>
+                ))}
+              </Flex>
+
+              {/* Пагинация */}
+              {totalCount > pageSize && (
+                <Panel style={{ 
+                  padding: '16px',
+                  background: 'rgba(255, 255, 255, 0.95)',
+                  borderRadius: '20px',
+                  boxShadow: '0 8px 30px rgba(0, 0, 0, 0.2)',
+                }}>
+                  <Flex justify="center" align="center" gap="12px" wrap="wrap">
+                    <Button
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      disabled={page === 1}
+                      style={{
+                        padding: '10px 16px',
+                        background: page === 1 ? '#e0e0e0' : 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
+                        border: 'none',
+                        color: page === 1 ? '#999' : '#333',
+                        borderRadius: '12px',
+                        fontWeight: '500',
+                        cursor: page === 1 ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      ←
+                    </Button>
+                    <Typography style={{ padding: '8px 16px', color: '#333', fontWeight: '500' }}>
+                      Страница {page} из {Math.ceil(totalCount / pageSize)}
+                    </Typography>
+                    <Button
+                      onClick={() => setPage((p) => p + 1)}
+                      disabled={page >= Math.ceil(totalCount / pageSize)}
+                      style={{
+                        padding: '10px 16px',
+                        background: page >= Math.ceil(totalCount / pageSize) ? '#e0e0e0' : 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
+                        border: 'none',
+                        color: page >= Math.ceil(totalCount / pageSize) ? '#999' : '#333',
+                        borderRadius: '12px',
+                        fontWeight: '500',
+                        cursor: page >= Math.ceil(totalCount / pageSize) ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      →
+                    </Button>
+                  </Flex>
+                </Panel>
+              )}
+            </>
+          )}
+        </Flex>
+      </Container>
+    </div>
+  )
+}
+

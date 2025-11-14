@@ -370,16 +370,27 @@ class ClassroomClient:
     def create_building(self, building_data: Dict[str, Any]) -> Dict[str, Any]:
         """Создать здание"""
         try:
-            request = classroom_pb2.CreateBuildingRequest(**building_data)
+            # Убираем поля, которых нет в proto
+            proto_fields = {
+                'name', 'short_name', 'code', 'address', 'campus',
+                'latitude', 'longitude', 'total_floors', 'has_elevator'
+            }
+            filtered_data = {k: v for k, v in building_data.items() if k in proto_fields}
+            
+            logger.info(f"Creating building with filtered data: {filtered_data}")
+            request = classroom_pb2.CreateBuildingRequest(**filtered_data)
             response = self.stub.CreateBuilding(request, timeout=10)
             
             if not response.building:
-                raise Exception("Failed to create building")
+                raise Exception("Failed to create building: empty response")
             
             return self._building_to_dict(response.building)
             
         except grpc.RpcError as e:
-            logger.error(f"RPC error creating building: {e}")
+            logger.error(f"RPC error creating building: {e.code()} - {e.details()}", exc_info=True)
+            raise
+        except Exception as e:
+            logger.error(f"Error creating building: {e}", exc_info=True)
             raise
     
     def get_building(self, building_id: int) -> Dict[str, Any]:

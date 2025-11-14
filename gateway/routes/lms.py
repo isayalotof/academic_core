@@ -34,7 +34,7 @@ async def list_courses(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(50, ge=1, le=100, description="Page size"),
     teacher_id: Optional[int] = Query(None, description="Filter by teacher"),
-    status: Optional[str] = Query(None, description="Filter by status"),
+    course_status: Optional[str] = Query(None, description="Filter by status", alias="status"),
     user: dict = Depends(get_current_user)
 ):
     """List courses"""
@@ -45,7 +45,7 @@ async def list_courses(
             page=page,
             page_size=page_size,
             teacher_id=teacher_id,
-            status=status
+            status=course_status
         )
         
         return {

@@ -159,6 +159,13 @@ WHERE id = %(teacher_id)s
 RETURNING id, full_name, user_id;
 """
 
+UNLINK_TEACHER_FROM_USER = """
+UPDATE teachers
+SET user_id = NULL, updated_at = NOW()
+WHERE id = %(teacher_id)s
+RETURNING id, full_name, user_id;
+"""
+
 # ============ HELPER FUNCTIONS ============
 
 def build_filters(

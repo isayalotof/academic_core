@@ -20,7 +20,9 @@ def run_migrations():
         with conn.cursor() as cur:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS schema_migrations (
-                    version VARCHAR(255) PRIMARY KEY,
+                    id SERIAL PRIMARY KEY,
+                    version VARCHAR(255) NOT NULL UNIQUE,
+                    filename VARCHAR(255) NOT NULL,
                     applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -44,7 +46,7 @@ def run_migrations():
                     sql = f.read()
                 
                 cur.execute(sql)
-                cur.execute("INSERT INTO schema_migrations (version) VALUES (%s)", (version,))
+                cur.execute("INSERT INTO schema_migrations (version, filename) VALUES (%s, %s)", (version, migration_file))
                 conn.commit()
                 logger.info(f"✓ Migration {version} applied successfully")
             

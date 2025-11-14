@@ -41,7 +41,8 @@ message CreateTicketRequest {
     string description = 2;
     string category = 3;
     int32 created_by = 4;
-    int32 priority = 5;
+    string created_by_name = 5;
+    int32 priority = 6;
 }
 
 message GetTicketRequest {

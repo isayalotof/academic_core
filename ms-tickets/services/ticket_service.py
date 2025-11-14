@@ -14,19 +14,19 @@ class TicketService:
     """Service for ticket management"""
     
     def create_ticket(self, title: str, description: str, category: str,
-                     created_by: int, priority: int = 3):
+                     created_by: int, created_by_name: str = '', priority: int = 3):
         """Create a new ticket"""
         pool = get_pool()
         conn = pool.get_connection()
         try:
             with conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO tickets (title, description, category, created_by, priority)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO tickets (title, description, category, created_by, created_by_name, priority)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     RETURNING id, title, description, category, status, created_by,
                               created_by_name, assigned_to, assigned_to_name, priority,
                               created_at, updated_at
-                """, (title, description, category, created_by, priority))
+                """, (title, description, category, created_by, created_by_name or '', priority))
                 
                 row = cur.fetchone()
                 conn.commit()
@@ -96,10 +96,12 @@ class TicketService:
                 where_clauses = []
                 params = []
                 
-                if created_by:
+                # -1 означает "не фильтровать", None тоже означает "не фильтровать"
+                # Только если передан валидный положительный ID, фильтруем
+                if created_by is not None and created_by > 0:
                     where_clauses.append("created_by = %s")
                     params.append(created_by)
-                if assigned_to:
+                if assigned_to is not None and assigned_to > 0:
                     where_clauses.append("assigned_to = %s")
                     params.append(assigned_to)
                 if status:

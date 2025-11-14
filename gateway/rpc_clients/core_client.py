@@ -79,13 +79,21 @@ class CoreClient:
             'id': teacher.id,
             'full_name': teacher.full_name,
             'first_name': teacher.first_name,
+            'last_name': teacher.last_name,
+            'middle_name': teacher.middle_name,
             'email': teacher.email,
             'phone': teacher.phone,
             'employment_type': teacher.employment_type,
             'priority': teacher.priority,
             'position': teacher.position,
+            'academic_degree': teacher.academic_degree,
             'department': teacher.department,
-            'is_active': teacher.is_active
+            'user_id': teacher.user_id if teacher.user_id and teacher.user_id > 0 else None,
+            'is_active': teacher.is_active,
+            'hire_date': teacher.hire_date if teacher.hire_date else None,
+            'termination_date': teacher.termination_date if teacher.termination_date else None,
+            'created_at': teacher.created_at,
+            'updated_at': teacher.updated_at
         }
         
         if teacher.HasField('preferences_info'):
@@ -139,6 +147,7 @@ class CoreClient:
                 'position': teacher.position,
                 'academic_degree': teacher.academic_degree,
                 'department': teacher.department,
+                'user_id': teacher.user_id if teacher.user_id and teacher.user_id > 0 else None,
                 'is_active': teacher.is_active,
                 'created_at': teacher.created_at
             })
@@ -1020,6 +1029,96 @@ class CoreClient:
             'is_active': response.course_load.is_active,
             'source': response.course_load.source,
             'created_at': response.course_load.created_at
+        }
+    
+    def link_student_to_user(self, student_id: int, user_id: int) -> Dict[str, Any]:
+        """Связать студента с пользователем из ms-auth"""
+        if not self.stub:
+            raise Exception("CoreClient not initialized")
+        
+        request = core_pb2.LinkRequest(
+            entity_id=student_id,
+            user_id=user_id
+        )
+        
+        response = self.stub.LinkStudentToUser(request, timeout=10)
+        
+        return {
+            'success': response.success,
+            'message': response.message
+        }
+    
+    def get_teacher_by_user_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Получить преподавателя по user_id"""
+        if not self.stub:
+            return None
+        
+        request = core_pb2.UserIdRequest(user_id=user_id)
+        response = self.stub.GetTeacherByUserId(request, timeout=10)
+        
+        if not response.teacher:
+            return None
+        
+        teacher = response.teacher
+        return {
+            'id': teacher.id,
+            'full_name': teacher.full_name,
+            'first_name': teacher.first_name,
+            'last_name': teacher.last_name,
+            'middle_name': teacher.middle_name,
+            'email': teacher.email,
+            'phone': teacher.phone,
+            'position': teacher.position,
+            'academic_degree': teacher.academic_degree,
+            'department': teacher.department,
+            'user_id': teacher.user_id,
+            'priority': teacher.priority,
+            'is_active': teacher.is_active
+        }
+    
+    def get_student_by_user_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Получить студента по user_id"""
+        if not self.stub:
+            return None
+        
+        request = core_pb2.UserIdRequest(user_id=user_id)
+        response = self.stub.GetStudentByUserId(request, timeout=10)
+        
+        if not response.student:
+            return None
+        
+        student = response.student
+        return {
+            'id': student.id,
+            'full_name': student.full_name,
+            'first_name': student.first_name,
+            'last_name': student.last_name,
+            'middle_name': student.middle_name,
+            'student_number': student.student_number,
+            'group_id': student.group_id,
+            'group_name': student.group_name,
+            'email': student.email,
+            'phone': student.phone,
+            'user_id': student.user_id,
+            'status': student.status,
+            'enrollment_date': student.enrollment_date
+        }
+    
+    def link_teacher_to_user(self, teacher_id: int, user_id: int) -> Dict[str, Any]:
+        """Связать преподавателя с пользователем из ms-auth"""
+        if not self.stub:
+            raise Exception("CoreClient not initialized")
+        
+        request = core_pb2.LinkRequest(
+            entity_id=teacher_id,
+            user_id=user_id
+        )
+        
+        response = self.stub.LinkTeacherToUser(request, timeout=10)
+        
+        return {
+            'success': response.success,
+            'message': response.message
         }
     
     def close(self):

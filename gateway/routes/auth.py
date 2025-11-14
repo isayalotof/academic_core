@@ -10,6 +10,7 @@ import logging
 import grpc
 
 from rpc_clients.auth_client import auth_client
+from rpc_clients.core_client import get_core_client
 
 logger = logging.getLogger(__name__)
 
@@ -107,12 +108,157 @@ async def register(data: RegisterRequest, request: Request):
     Регистрация нового пользователя
     
     Доступно всем
+    
+    Если указан student_group_id, автоматически создается запись студента,
+    что увеличит размер группы через триггер БД.
     """
     try:
-        response = auth_client.register(data.dict())
+        # При регистрации НЕ передаем teacher_id в ms-auth напрямую
+        # Сначала создаем пользователя, затем связываем преподавателя в ms-core
+        # и только после успешного связывания обновляем teacher_id в ms-auth
+        register_data = data.dict()
+        teacher_id_to_link = register_data.pop('teacher_id', None)  # Временно убираем из данных регистрации
+        student_group_id_to_link = register_data.pop('student_group_id', None)  # Временно убираем
+        
+        response = auth_client.register(register_data)
         
         if not response['success']:
             raise HTTPException(status_code=400, detail=response['message'])
+        
+        user_id = response['user']['id']
+        
+        # Если преподаватель указал существующий teacher_id, связать его с пользователем
+        if data.primary_role == 'teacher' and teacher_id_to_link:
+            try:
+                core_client = get_core_client()
+                
+                logger.info(f"Linking teacher {teacher_id_to_link} to registered user {user_id}")
+                
+                try:
+                    # Проверить, что преподаватель существует
+                    teacher = core_client.get_teacher(teacher_id_to_link)
+                    if not teacher:
+                        logger.warning(f"⚠️ Teacher {teacher_id_to_link} not found, skipping link")
+                    elif teacher.get('user_id') and teacher['user_id'] != 0:
+                        logger.warning(f"⚠️ Teacher {teacher_id_to_link} is already linked to user {teacher['user_id']}, skipping link. Registration will complete without teacher link.")
+                    else:
+                        # Связать существующего преподавателя с пользователем
+                        link_result = core_client.link_teacher_to_user(teacher_id_to_link, user_id)
+                        if not link_result.get('success'):
+                            logger.warning(f"⚠️ Failed to link teacher {teacher_id_to_link} to user {user_id}: {link_result.get('message')}")
+                        else:
+                            logger.info(f"✅ Successfully linked teacher {teacher_id_to_link} to user {user_id}")
+                            
+                            # Обновляем данные преподавателя из данных регистрации
+                            try:
+                                update_data = {}
+                                if data.email:
+                                    update_data['email'] = data.email
+                                if data.phone:
+                                    update_data['phone'] = data.phone
+                                if data.full_name:
+                                    update_data['full_name'] = data.full_name
+                                
+                                if update_data:
+                                    logger.info(f"📝 Updating teacher {teacher_id_to_link} data from registration: {list(update_data.keys())}")
+                                    update_data['updated_by'] = user_id
+                                    updated_teacher = core_client.update_teacher(teacher_id_to_link, update_data)
+                                    logger.info(f"✅ Teacher {teacher_id_to_link} data updated successfully")
+                            except Exception as e:
+                                logger.warning(f"⚠️ Failed to update teacher data, but link is successful: {e}")
+                            
+                            # Проверяем, что связь установлена
+                            try:
+                                teacher_check = core_client.get_teacher(teacher_id_to_link)
+                                if teacher_check and teacher_check.get('user_id') == user_id:
+                                    logger.info(f"✅ Verified: teacher {teacher_id_to_link} is linked to user {user_id}")
+                                    # teacher_id будет обновляться автоматически в /api/auth/me через проверку связи в ms-core
+                                else:
+                                    logger.warning(f"⚠️ Warning: teacher {teacher_id_to_link} user_id mismatch. Expected: {user_id}, Got: {teacher_check.get('user_id') if teacher_check else None}")
+                            except Exception as e:
+                                logger.error(f"❌ Error verifying teacher link: {e}")
+                        
+                except grpc.RpcError as e:
+                    logger.error(f"❌ gRPC error linking teacher: {e.code()}: {e.details()}")
+                    # Не прерываем регистрацию, пользователь уже создан
+                except Exception as e:
+                    logger.error(f"❌ Unexpected error linking teacher: {type(e).__name__}: {e}", exc_info=True)
+                    # Не прерываем регистрацию, пользователь уже создан
+                
+            except Exception as e:
+                logger.error(f"❌ Error linking teacher during registration: {e}", exc_info=True)
+                # Не прерываем регистрацию, пользователь уже создан
+        
+        # Если студент указал группу, создать запись студента
+        if data.primary_role == 'student' and student_group_id_to_link:
+            try:
+                core_client = get_core_client()
+                
+                logger.info(f"Creating student for registered user {user_id} with group_id={student_group_id_to_link}")
+                
+                # Генерируем уникальный номер студенческого билета
+                import time
+                import random
+                # Используем timestamp + user_id + случайное число для уникальности
+                student_number = f"{int(time.time())}{user_id:04d}{random.randint(10, 99)}"
+                
+                # Разбиваем ФИО на части для правильного заполнения
+                # Обычно формат: "Фамилия Имя Отчество"
+                name_parts = data.full_name.strip().split()
+                if len(name_parts) >= 3:
+                    last_name = name_parts[0]  # Фамилия
+                    first_name = name_parts[1]  # Имя
+                    middle_name = name_parts[2]  # Отчество
+                elif len(name_parts) == 2:
+                    last_name = name_parts[0]
+                    first_name = name_parts[1]
+                    middle_name = None
+                else:
+                    first_name = data.full_name
+                    last_name = ''
+                    middle_name = None
+                
+                # Создать студента
+                student_data = {
+                    'full_name': data.full_name,
+                    'first_name': first_name,
+                    'last_name': last_name,
+                    'middle_name': middle_name,
+                    'student_number': student_number,
+                    'group_id': student_group_id_to_link,
+                    'email': data.email,
+                    'phone': data.phone if data.phone else None,
+                }
+                
+                logger.info(f"Student data to create: {student_data}")
+                
+                try:
+                    student_result = core_client.create_student(student_data)
+                    student_id = student_result.get('id')
+                    
+                    if not student_id:
+                        logger.error(f"❌ Student creation failed: no ID returned. Result: {student_result}")
+                    else:
+                        logger.info(f"✅ Student created successfully with ID: {student_id}")
+                        
+                        # Связать студента с пользователем
+                        link_result = core_client.link_student_to_user(student_id, user_id)
+                        if not link_result.get('success'):
+                            logger.warning(f"⚠️ Failed to link student {student_id} to user {user_id}: {link_result.get('message')}")
+                        else:
+                            logger.info(f"✅ Successfully linked student {student_id} to user {user_id}. Group size will be updated automatically via DB trigger.")
+                            
+                except grpc.RpcError as e:
+                    logger.error(f"❌ gRPC error creating student: {e.code()}: {e.details()}")
+                    raise  # Пробрасываем, чтобы обработать в основном except
+                except Exception as e:
+                    logger.error(f"❌ Unexpected error creating student: {type(e).__name__}: {e}", exc_info=True)
+                    raise
+                
+            except Exception as e:
+                logger.error(f"❌ Error creating student during registration: {e}", exc_info=True)
+                # Не прерываем регистрацию, пользователь уже создан
+                # Размер группы можно будет обновить позже вручную или при создании студента
         
         return {
             "success": True,
@@ -122,7 +268,9 @@ async def register(data: RegisterRequest, request: Request):
                 "email": response['user']['email'],
                 "full_name": response['user']['full_name'],
                 "role": response['user']['primary_role'],
-                "roles": response['user']['roles']
+                "roles": response['user']['roles'],
+                "teacher_id": response['user'].get('teacher_id') if response['user'].get('teacher_id') else None,
+                "student_group_id": response['user'].get('student_group_id') if response['user'].get('student_group_id') else None
             },
             "tokens": response['tokens'],
             "message": response['message']
@@ -182,7 +330,9 @@ async def login(data: LoginRequest, request: Request):
                 "email": response['user']['email'],
                 "full_name": response['user']['full_name'],
                 "role": response['user']['primary_role'],
-                "roles": response['user']['roles']
+                "roles": response['user']['roles'],
+                "teacher_id": response['user'].get('teacher_id') if response['user'].get('teacher_id') else None,
+                "student_group_id": response['user'].get('student_group_id') if response['user'].get('student_group_id') else None
             },
             "tokens": response['tokens'],
             "message": response['message']
@@ -311,6 +461,68 @@ async def get_current_user(authorization: str = Header(...)):
         if not user:
             raise HTTPException(status_code=401, detail="Invalid token")
         
+        user_id = user['id']
+        teacher_id = user.get('teacher_id') if user.get('teacher_id') else None
+        student_group_id = user.get('student_group_id') if user.get('student_group_id') else None
+        
+        # После связывания преподавателя/студента в ms-core, данные могут не синхронизироваться в ms-auth
+        # Поэтому дополнительно проверяем связь в ms-core
+        try:
+            core_client = get_core_client()
+            
+            # Если нет teacher_id в ms-auth, но роль - преподаватель, ищем связь в ms-core
+            # Также проверяем, даже если teacher_id есть, чтобы убедиться в актуальности данных
+            if user['primary_role'] == 'teacher':
+                logger.info(f"🔍 Checking teacher link for user {user_id} (current teacher_id from ms-auth: {teacher_id})")
+                try:
+                    # Ищем преподавателя, связанного с этим пользователем
+                    logger.info(f"📞 Calling get_teacher_by_user_id({user_id})")
+                    teacher_by_user = core_client.get_teacher_by_user_id(user_id)
+                    logger.info(f"📥 Response from get_teacher_by_user_id: {teacher_by_user}")
+                    
+                    if teacher_by_user and teacher_by_user.get('id'):
+                        new_teacher_id = teacher_by_user['id']
+                        if teacher_id != new_teacher_id:
+                            logger.info(f"✅ Found linked teacher {new_teacher_id} for user {user_id} via ms-core (was: {teacher_id})")
+                            teacher_id = new_teacher_id
+                        elif not teacher_id:
+                            logger.info(f"✅ Found linked teacher {new_teacher_id} for user {user_id} via ms-core")
+                            teacher_id = new_teacher_id
+                        else:
+                            logger.info(f"✅ Teacher {teacher_id} already linked to user {user_id}, data is up to date")
+                    else:
+                        logger.warning(f"⚠️ No teacher found for user {user_id} in ms-core. Response: {teacher_by_user}")
+                except grpc.RpcError as e:
+                    if e.code() == grpc.StatusCode.NOT_FOUND:
+                        logger.info(f"ℹ️ Teacher not found for user {user_id} (this is normal if not yet linked)")
+                    else:
+                        logger.error(f"❌ gRPC error finding teacher for user {user_id}: {e.code()}: {e.details()}")
+                    # Если teacher_id был в ms-auth, но не найден в ms-core, возможно связь разорвана
+                    if teacher_id:
+                        logger.warning(f"⚠️ Teacher {teacher_id} from ms-auth not found in ms-core for user {user_id}, clearing teacher_id")
+                        teacher_id = None
+                except Exception as e:
+                    logger.error(f"❌ Unexpected error finding teacher for user {user_id}: {type(e).__name__}: {e}", exc_info=True)
+                    # Если teacher_id был в ms-auth, но не найден в ms-core, возможно связь разорвана
+                    if teacher_id:
+                        logger.warning(f"⚠️ Teacher {teacher_id} from ms-auth not found in ms-core for user {user_id}, clearing teacher_id")
+                        teacher_id = None
+            
+            # Если нет student_group_id в ms-auth, но роль - студент, ищем связь в ms-core
+            if not student_group_id and user['primary_role'] == 'student':
+                try:
+                    # Ищем студента, связанного с этим пользователем
+                    student_by_user = core_client.get_student_by_user_id(user_id)
+                    if student_by_user and student_by_user.get('group_id'):
+                        student_group_id = student_by_user['group_id']
+                        logger.info(f"✅ Found linked student with group {student_group_id} for user {user_id} via ms-core")
+                except Exception as e:
+                    logger.debug(f"Could not find student for user {user_id}: {e}")
+                    
+        except Exception as e:
+            logger.warning(f"Error checking links in ms-core for user {user_id}: {e}")
+            # Не прерываем запрос, используем данные из ms-auth
+        
         return {
             "success": True,
             "user": {
@@ -321,6 +533,8 @@ async def get_current_user(authorization: str = Header(...)):
                 "phone": user['phone'],
                 "role": user['primary_role'],
                 "roles": user['roles'],
+                "teacher_id": teacher_id,
+                "student_group_id": student_group_id,
                 "is_active": user['is_active'],
                 "is_verified": user['is_verified']
             }
@@ -400,5 +614,143 @@ async def validate_token(
         return {
             "valid": False,
             "message": str(e)
+        }
+
+
+@router.get("/register/groups")
+async def get_groups_for_registration():
+    """
+    Получить список активных групп для регистрации (публичный endpoint)
+    
+    Используется для выбора группы при регистрации студента
+    """
+    try:
+        core_client = get_core_client()
+        logger.info("Fetching groups for registration")
+        
+        if not core_client.stub:
+            logger.warning("Core client stub is None - proto files may not be loaded")
+            return {
+                "success": True,
+                "groups": []
+            }
+        
+        result = core_client.list_groups(
+            page=1,
+            page_size=200,  # Большой лимит для получения всех групп
+            only_active=True
+        )
+        
+        logger.info(f"Core service response: total_count={result.get('total_count', 0)}, groups_count={len(result.get('groups', []))}")
+        
+        # Возвращаем только необходимые поля
+        groups = [
+            {
+                'id': g['id'],
+                'name': g['name'],
+                'short_name': g.get('short_name', ''),
+                'year': g.get('year', 0),
+                'level': g.get('level', ''),
+            }
+            for g in result.get('groups', [])
+        ]
+        
+        logger.info(f"Returning {len(groups)} groups for registration")
+        
+        return {
+            "success": True,
+            "groups": groups
+        }
+    except Exception as e:
+        logger.error(f"Error getting groups for registration: {e}", exc_info=True)
+        # Возвращаем пустой список вместо ошибки, чтобы форма работала
+        return {
+            "success": True,
+            "groups": [],
+            "error": str(e)
+        }
+
+
+@router.get("/register/teachers")
+async def get_teachers_for_registration():
+    """
+    Получить список активных преподавателей для регистрации (публичный endpoint)
+    
+    Используется для выбора преподавателя при регистрации
+    """
+    try:
+        core_client = get_core_client()
+        logger.info("Fetching teachers for registration")
+        
+        if not core_client.stub:
+            logger.warning("Core client stub is None - proto files may not be loaded")
+            return {
+                "success": True,
+                "teachers": []
+            }
+        
+        result = core_client.list_teachers(
+            page=1,
+            page_size=200,  # Большой лимит для получения всех преподавателей
+            only_active=True
+        )
+        
+        logger.info(f"Core service response: total_count={result.get('total_count', 0)}, teachers_count={len(result.get('teachers', []))}")
+        
+        # Фильтруем только свободных преподавателей (без user_id или user_id = 0/None)
+        # Это предотвращает попытки связать уже занятого преподавателя
+        all_teachers = result.get('teachers', [])
+        
+        # Логируем все преподаватели для отладки
+        for t in all_teachers:
+            teacher_id = t.get('id')
+            user_id = t.get('user_id')
+            logger.info(f"📋 Teacher {teacher_id}: user_id={user_id} (type={type(user_id).__name__})")
+        
+        free_teachers = []
+        for t in all_teachers:
+            user_id = t.get('user_id')
+            # Преподаватель свободен, если user_id отсутствует, равен None, 0 или пустой строке
+            # Также проверяем, если user_id не в словаре вообще
+            is_free = (
+                'user_id' not in t or  # Ключ отсутствует
+                user_id is None or      # None
+                user_id == 0 or         # 0 (int)
+                user_id == '' or        # Пустая строка
+                (isinstance(user_id, str) and user_id.strip() == '')  # Пустая строка после strip
+            )
+            if is_free:
+                free_teachers.append(t)
+                logger.info(f"✅ Teacher {t.get('id')} is FREE (user_id={user_id})")
+            else:
+                logger.info(f"❌ Teacher {t.get('id')} is LINKED (user_id={user_id})")
+        
+        logger.info(f"Filtered to {len(free_teachers)} free teachers (out of {len(all_teachers)} total)")
+        
+        # Возвращаем только необходимые поля
+        teachers = [
+            {
+                'id': t['id'],
+                'full_name': t['full_name'],
+                'email': t.get('email', ''),
+                'position': t.get('position', ''),
+                'department': t.get('department', ''),
+            }
+            for t in free_teachers
+        ]
+        
+        logger.info(f"Returning {len(teachers)} teachers for registration")
+        
+        return {
+            "success": True,
+            "teachers": teachers
+        }
+    except Exception as e:
+        logger.error(f"Error getting teachers for registration: {e}", exc_info=True)
+        # Возвращаем пустой список вместо ошибки, чтобы форма работала
+        return {
+            "success": True,
+            "teachers": [],
+            "error": str(e)
         }
 

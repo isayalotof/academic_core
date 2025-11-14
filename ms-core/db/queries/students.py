@@ -10,15 +10,17 @@ INSERT INTO students (
     full_name, first_name, last_name, middle_name,
     student_number, group_id,
     email, phone,
-    enrollment_date
+    enrollment_date,
+    status
 )
 VALUES (
     %(full_name)s, %(first_name)s, %(last_name)s, %(middle_name)s,
     %(student_number)s, %(group_id)s,
     %(email)s, %(phone)s,
-    %(enrollment_date)s
+    %(enrollment_date)s,
+    COALESCE(%(status)s, 'active')
 )
-RETURNING id, full_name, student_number, group_id, created_at;
+RETURNING id, full_name, student_number, group_id, status, created_at;
 """
 
 # ============ READ ============

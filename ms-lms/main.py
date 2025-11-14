@@ -10,6 +10,7 @@ from concurrent import futures
 from config import config
 from utils.logger import setup_logger
 from db.connection import get_pool, close_pool
+from db.migrations.migrate import run_migrations
 from rpc.server import serve
 
 logger = setup_logger(
@@ -54,6 +55,15 @@ def main():
         logger.info("✓ Database pool initialized")
     except Exception as e:
         logger.error(f"✗ Failed to initialize database: {e}")
+        sys.exit(1)
+    
+    # Run migrations
+    try:
+        logger.info("Running database migrations...")
+        run_migrations()
+        logger.info("✓ Migrations completed")
+    except Exception as e:
+        logger.error(f"✗ Failed to run migrations: {e}", exc_info=True)
         sys.exit(1)
     
     # Start gRPC server

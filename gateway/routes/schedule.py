@@ -21,7 +21,7 @@ async def get_group_schedule(
     group_id: int = Path(..., description="Group ID"),
     semester: int = Query(..., ge=1, le=12, description="Semester number (1-12)"),
     academic_year: str = Query(..., description="Academic year (e.g. 2025/2026)"),
-    day_of_week: Optional[int] = Query(None, ge=1, le=6, description="Day of week (1-6)"),
+    day_of_week: Optional[int] = Query(None, ge=0, le=5, description="Day of week (0-5, where 0=Monday, 5=Saturday)"),
     week_type: Optional[str] = Query(None, description="Week type (odd/even/both)")
 ):
     """
@@ -30,10 +30,14 @@ async def get_group_schedule(
     - **group_id**: Group ID
     - **semester**: Semester number (1-12)
     - **academic_year**: Academic year (e.g., "2025/2026")
-    - **day_of_week**: Optional filter by day (1=Monday, 6=Saturday)
+    - **day_of_week**: Optional filter by day (0=Monday, 1=Tuesday, ..., 5=Saturday)
     - **week_type**: Optional filter by week type
     """
     try:
+        logger.info(
+            f"GetGroupSchedule route: group_id={group_id}, semester={semester}, "
+            f"academic_year={academic_year}, day_of_week={day_of_week} (type: {type(day_of_week)})"
+        )
         client = get_schedule_client()
         lessons = client.get_group_schedule(
             group_id=group_id,
@@ -62,11 +66,15 @@ async def get_teacher_schedule(
     teacher_id: int = Path(..., description="Teacher ID"),
     semester: int = Query(..., ge=1, le=12, description="Semester number (1-12)"),
     academic_year: str = Query(..., description="Academic year (e.g. 2025/2026)"),
-    day_of_week: Optional[int] = Query(None, ge=1, le=6),
+    day_of_week: Optional[int] = Query(None, ge=0, le=5, description="Day of week (0-5, where 0=Monday, 5=Saturday)"),
     week_type: Optional[str] = Query(None)
 ):
     """Get schedule for teacher"""
     try:
+        logger.info(
+            f"GetTeacherSchedule route: teacher_id={teacher_id}, semester={semester}, "
+            f"academic_year={academic_year}, day_of_week={day_of_week} (type: {type(day_of_week)})"
+        )
         client = get_schedule_client()
         lessons = client.get_teacher_schedule(
             teacher_id=teacher_id,
@@ -95,7 +103,7 @@ async def get_classroom_schedule(
     classroom_id: int = Path(..., description="Classroom ID"),
     semester: int = Query(..., ge=1, le=12, description="Semester number (1-12)"),
     academic_year: str = Query(..., description="Academic year (e.g. 2025/2026)"),
-    day_of_week: Optional[int] = Query(None, ge=1, le=6),
+    day_of_week: Optional[int] = Query(None, ge=0, le=5, description="Day of week (0-5, where 0=Monday, 5=Saturday)"),
     week_type: Optional[str] = Query(None)
 ):
     """Get schedule for classroom"""

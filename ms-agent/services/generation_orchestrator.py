@@ -108,6 +108,13 @@ class GenerationOrchestrator:
             for iteration in range(max_iterations):
                 logger.info(f"=== Iteration {iteration + 1}/{max_iterations} ===")
                 
+                # Проверка на пустую популяцию
+                if not population:
+                    logger.warning("⚠️ Population is empty! Reinitializing...")
+                    population = initializer.create_population(population_size)
+                    for chromosome in population:
+                        fitness_calculator.calculate(chromosome)
+                
                 # 3.1. Оценить fitness
                 for chromosome in population:
                     fitness_calculator.calculate(chromosome)
@@ -166,6 +173,19 @@ class GenerationOrchestrator:
                     ]
                     valid_population.extend(valid_from_old)
                     valid_population = valid_population[:population_size]
+                
+                # Если все еще пусто, добавить лучших из старой популяции (даже невалидных)
+                if not valid_population:
+                    logger.warning("⚠️ No valid chromosomes! Using best from previous population...")
+                    sorted_old = sorted(population, key=lambda c: c.fitness, reverse=True)
+                    valid_population = sorted_old[:min(population_size, len(sorted_old))]
+                
+                # Если все еще пусто, пересоздать популяцию
+                if not valid_population:
+                    logger.warning("⚠️ Population completely lost! Reinitializing...")
+                    valid_population = initializer.create_population(population_size)
+                    for chromosome in valid_population:
+                        fitness_calculator.calculate(chromosome)
                 
                 population = valid_population
                 
@@ -260,6 +280,37 @@ class GenerationOrchestrator:
                            semester: int,
                            academic_year: str):
         """Сохранить расписание в БД"""
+        # Получить актуальные имена преподавателей из БД напрямую
+        teacher_names_cache = {}
+        teacher_ids = set(lesson.get('teacher_id', 0) for lesson in schedule if lesson.get('teacher_id', 0) > 0)
+        if teacher_ids:
+            logger.info(f"📋 Fetching actual teacher names for {len(teacher_ids)} teachers from database (genetic algorithm)")
+            try:
+                # Получить актуальные имена преподавателей из таблицы teachers
+                teachers_data = db.execute_query(
+                    "SELECT id, full_name FROM teachers WHERE id = ANY(%(teacher_ids)s)",
+                    {'teacher_ids': list(teacher_ids)},
+                    fetch=True
+                )
+                for teacher_row in teachers_data:
+                    teacher_names_cache[teacher_row['id']] = teacher_row.get('full_name', '')
+                    logger.info(f"  ✅ Teacher {teacher_row['id']}: {teacher_names_cache[teacher_row['id']]}")
+            except Exception as e:
+                logger.error(f"  ❌ Failed to fetch teacher names from database: {e}")
+        
+        # Обновить teacher_name в расписании актуальными данными
+        updated_count = 0
+        for lesson in schedule:
+            teacher_id = lesson.get('teacher_id', 0)
+            if teacher_id > 0 and teacher_id in teacher_names_cache:
+                old_name = lesson.get('teacher_name', '')
+                lesson['teacher_name'] = teacher_names_cache[teacher_id]
+                if old_name != teacher_names_cache[teacher_id]:
+                    updated_count += 1
+                    logger.info(f"  🔄 Updated lesson teacher_name: teacher_id={teacher_id}, old='{old_name}', new='{teacher_names_cache[teacher_id]}'")
+        if updated_count > 0:
+            logger.info(f"✅ Updated {updated_count} lessons with actual teacher names")
+        
         # Деактивировать старые
         db.execute_query(
             schedule_queries.DEACTIVATE_OLD_SCHEDULES,
@@ -269,13 +320,26 @@ class GenerationOrchestrator:
         
         # Вставить новое
         for lesson in schedule:
+            # КРИТИЧЕСКАЯ ФИНАЛЬНАЯ ПРОВЕРКА: Воскресенье (0 или 7) ЗАПРЕЩЕНО!
+            day_of_week = lesson.get('day_of_week', 1)
+            if day_of_week == 0 or day_of_week == 7 or day_of_week < 1 or day_of_week > 6:
+                logger.error(
+                    f"CRITICAL ERROR: Attempting to save lesson with invalid day_of_week={day_of_week}! "
+                    f"Only days 1-6 (Monday-Saturday) are allowed. Sunday (0 or 7) is FORBIDDEN! "
+                    f"Lesson: discipline={lesson.get('discipline_name')}, "
+                    f"teacher={lesson.get('teacher_id')}, group={lesson.get('group_id')}. "
+                    f"SKIPPING SAVE!"
+                )
+                continue  # НЕ сохраняем занятие с воскресеньем!
+            
             db.execute_query(
                 schedule_queries.INSERT_SCHEDULE,
                 {
                     'course_load_id': lesson.get('course_load_id', 0),
-                    'day_of_week': lesson.get('day_of_week', 1),
+                    'day_of_week': day_of_week,  # Используем проверенное значение
                     'time_slot': lesson.get('time_slot', 1),
                     'classroom_id': lesson.get('classroom_id', 0),
+                    'classroom_name': lesson.get('classroom_name'),
                     'teacher_id': lesson.get('teacher_id', 0),
                     'teacher_name': lesson.get('teacher_name', ''),
                     'group_id': lesson.get('group_id', 0),
@@ -283,7 +347,9 @@ class GenerationOrchestrator:
                     'discipline_name': lesson.get('discipline_name', ''),
                     'lesson_type': lesson.get('lesson_type', 'Практика'),
                     'generation_id': generation_id,
-                    'is_active': True
+                    'is_active': True,
+                    'semester': semester,
+                    'academic_year': academic_year
                 },
                 fetch=False
             )

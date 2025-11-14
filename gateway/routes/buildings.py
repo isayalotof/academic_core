@@ -88,7 +88,13 @@ async def create_building(
     После создания можно добавлять аудитории в это здание.
     """
     try:
-        result = classroom_client.create_building(request.dict())
+        # Подготовка данных для gRPC (убираем description, так как его нет в proto)
+        building_data = request.dict()
+        # description не поддерживается в proto, но можно добавить в будущем
+        building_data.pop('description', None)
+        
+        logger.info(f"Creating building with data: {building_data}")
+        result = classroom_client.create_building(building_data)
         
         return {
             "success": True,
@@ -96,24 +102,37 @@ async def create_building(
             "message": "Building created successfully"
         }
     except grpc.RpcError as e:
-        logger.error(f"RPC error creating building: {e}")
+        logger.error(f"RPC error creating building: {e}", exc_info=True)
         error_message = e.details() or "Unknown error"
+        error_code = e.code()
         
         # Check for duplicate code
-        if ("duplicate key" in error_message and
-                "buildings_code_key" in error_message):
+        if ("duplicate key" in error_message.lower() and
+                "buildings_code_key" in error_message.lower()):
             raise HTTPException(
                 status_code=409,
-                detail="Building with this code already exists"
+                detail="Здание с таким кодом уже существует"
             )
-        elif e.code() == grpc.StatusCode.INVALID_ARGUMENT:
-            raise HTTPException(status_code=400, detail=error_message)
-        elif e.code() == grpc.StatusCode.ALREADY_EXISTS:
-            raise HTTPException(status_code=409, detail=error_message)
+        elif error_code == grpc.StatusCode.INVALID_ARGUMENT:
+            raise HTTPException(status_code=400, detail=error_message or "Неверные данные для создания здания")
+        elif error_code == grpc.StatusCode.ALREADY_EXISTS:
+            raise HTTPException(status_code=409, detail=error_message or "Здание уже существует")
+        elif error_code == grpc.StatusCode.UNAVAILABLE:
+            raise HTTPException(
+                status_code=503,
+                detail="Сервис зданий временно недоступен. Попробуйте позже."
+            )
+        elif error_code == grpc.StatusCode.DEADLINE_EXCEEDED:
+            raise HTTPException(
+                status_code=504,
+                detail="Превышено время ожидания ответа от сервиса зданий"
+            )
         else:
+            # Более информативное сообщение об ошибке
+            detail_msg = error_message if error_message and error_message != "Unknown error" else f"Ошибка сервиса зданий (код: {error_code})"
             raise HTTPException(
                 status_code=500,
-                detail="Building service error"
+                detail=detail_msg
             )
     except Exception as e:
         logger.error(f"Error creating building: {e}", exc_info=True)

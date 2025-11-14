@@ -1,0 +1,22 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${API_URL:-http://localhost:8000}
+        VITE_MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:-}
+    container_name: university-frontend
+    ports:
+      - "${FRONTEND_PORT:-3001}:80"
+    restart: unless-stopped
+    # Если нужно подключиться к существующей сети (когда запущен основной compose.yaml)
+    # раскомментируйте следующую строку и убедитесь, что основная сеть создана:
+    # networks:
+    #   - university-network
+
+# Раскомментируйте, если используете вместе с основным compose.yaml:
+# networks:
+#   university-network:
+#     external: true
+

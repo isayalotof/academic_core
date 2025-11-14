@@ -25,28 +25,59 @@ class StudentService:
         if 'email' in student_data:
             validate_email(student_data['email'])
         
+        # Убеждаемся, что статус установлен (по умолчанию 'active')
+        if 'status' not in student_data:
+            student_data['status'] = 'active'
+        
         conn = self.db_pool.get_connection()
         try:
             with conn.cursor() as cur:
+                # Создать студента
+                logger.info(f"Creating student: {student_data.get('full_name')} for group_id={student_data.get('group_id')} with status={student_data.get('status', 'active')}")
                 cur.execute(student_queries.CREATE_STUDENT, student_data)
                 result = cur.fetchone()
-                conn.commit()
-                
-                # Триггер автоматически обновит group.size!
                 
                 student = {
                     'id': result[0],
                     'full_name': result[1],
                     'student_number': result[2],
                     'group_id': result[3],
-                    'created_at': result[4].isoformat() if result[4] else None
+                    'status': result[4],  # Теперь статус возвращается из БД
+                    'created_at': result[5].isoformat() if result[5] else None
                 }
                 
-                # Инвалидировать кэш
+                logger.info(f"Student created: id={student['id']}, status={student['status']}, group_id={student['group_id']}")
+                
+                # Явно обновить размер группы (на случай, если триггер не сработал)
+                # Триггер должен автоматически обновить group.size при INSERT,
+                # но явно пересчитываем для гарантии
+                from db.queries import groups as group_queries
+                try:
+                    logger.info(f"Recalculating group size for group_id={result[3]}")
+                    cur.execute(
+                        group_queries.RECALCULATE_GROUP_SIZE,
+                        {'group_id': result[3]}
+                    )
+                    size_result = cur.fetchone()
+                    if size_result:
+                        new_size = size_result[1]
+                        logger.info(f"✅ Updated group {result[3]} size to {new_size} (trigger should also update it)")
+                    else:
+                        logger.warning(f"⚠️ Group size update returned no result for group_id={result[3]}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to recalculate group size: {e}", exc_info=True)
+                    # Не прерываем выполнение, размер обновится триггером
+                
+                # Коммитим всё вместе
+                conn.commit()
+                logger.info(f"Transaction committed for student {student['id']}")
+                
+                # Инвалидировать кэш после коммита
                 self.cache.delete_pattern("students:*")
                 self.cache.delete(f"group:{result[3]}")
+                logger.info(f"Cache invalidated for group {result[3]}")
                 
-                logger.info(f"Created student: {student['id']} - {student['full_name']}")
+                logger.info(f"✅ Created student: {student['id']} - {student['full_name']} (group_id={result[3]}, status={student['status']})")
                 
                 return student
                 

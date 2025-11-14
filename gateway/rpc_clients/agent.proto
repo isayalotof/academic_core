@@ -52,27 +52,28 @@ message CourseLoad {
 
 message Schedule {
     int32 id = 1;
-    int32 generation_id = 2;
+    int32 course_load_id = 2;
     
-    int32 day_of_week = 3;              // 1-6 (Пн-Сб)
-    int32 time_slot = 4;                 // 1-6 (пара)
-    string week_type = 5;                // "odd", "even", "both"
+    int32 day_of_week = 3;
+    int32 time_slot = 4;
     
-    int32 discipline_id = 6;
-    string discipline_name = 7;
-    string discipline_code = 8;
+    int32 classroom_id = 5;
+    string classroom_name = 6;
     
-    int32 teacher_id = 9;
-    string teacher_name = 10;
+    int32 teacher_id = 7;
+    string teacher_name = 8;
+    int32 group_id = 9;
+    string group_name = 10;
+    string discipline_name = 11;
+    string lesson_type = 12;
     
-    int32 group_id = 11;
-    string group_name = 12;
+    int32 generation_id = 13;
+    bool is_active = 14;
     
-    int32 classroom_id = 13;
-    string classroom_code = 14;
-    
-    string lesson_type = 15;
-    bool is_active = 16;
+    // Семестр и учебный год
+    int32 semester = 15;
+    string academic_year = 16;
+    string week_type = 17;
 }
 
 message Conflict {

@@ -320,8 +320,42 @@ class TeacherService:
                 # Инвалидировать кэш
                 self.cache.delete(f"teacher:{teacher_id}")
                 self.cache.delete(f"teacher:user:{user_id}")
+                self.cache.delete_pattern("teachers:list:*")  # Инвалидировать списки преподавателей
                 
-                logger.info(f"Linked teacher {teacher_id} to user {user_id}")
+                logger.info(f"✅ Linked teacher {teacher_id} to user {user_id} (cache invalidated)")
+                
+                return True
+                
+        finally:
+            self.db_pool.return_connection(conn)
+    
+    def unlink_teacher_from_user(self, teacher_id: int) -> bool:
+        """Отвязать преподавателя от пользователя (установить user_id = NULL)"""
+        conn = self.db_pool.get_connection()
+        try:
+            with conn.cursor() as cur:
+                # Сначала получить текущий user_id для очистки кэша
+                cur.execute(
+                    "SELECT user_id FROM teachers WHERE id = %(teacher_id)s",
+                    {'teacher_id': teacher_id}
+                )
+                row = cur.fetchone()
+                old_user_id = row[0] if row else None
+                
+                # Отвязать преподавателя
+                cur.execute(
+                    teacher_queries.UNLINK_TEACHER_FROM_USER,
+                    {'teacher_id': teacher_id}
+                )
+                conn.commit()
+                
+                # Инвалидировать кэш
+                self.cache.delete(f"teacher:{teacher_id}")
+                if old_user_id:
+                    self.cache.delete(f"teacher:user:{old_user_id}")
+                self.cache.delete_pattern("teachers:list:*")  # Инвалидировать списки преподавателей
+                
+                logger.info(f"✅ Unlinked teacher {teacher_id} from user {old_user_id} (cache invalidated)")
                 
                 return True
                 

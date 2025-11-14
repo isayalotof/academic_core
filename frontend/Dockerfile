@@ -8,16 +8,25 @@ COPY frontend/package*.json ./
 # Используем npm install, так как package-lock.json может отсутствовать
 RUN npm install
 
-# Create default .env file first
-RUN echo "VITE_API_URL=https://max.isayalot.ru" > .env
-
-# Copy project root to temp location to access .env file
+# Copy project root to temp location to access .env file FIRST
 COPY . /tmp/project-root/
+
+# Create default .env file first (in the project root where Vite expects it)
+RUN echo "VITE_API_URL=https://max.isayalot.ru" > .env
 
 # Copy .env from project root if it exists (will overwrite default)
 RUN if [ -f /tmp/project-root/.env ]; then \
+      echo "📋 Found .env file in project root, copying..."; \
       cp /tmp/project-root/.env .env; \
+      echo "✅ .env file copied. Contents:"; \
+      cat .env; \
+    else \
+      echo "⚠️  No .env file found in project root, using default"; \
+      echo "📋 Default .env contents:"; \
+      cat .env; \
     fi && \
+    echo "🔍 Final .env file before build:" && \
+    cat .env && \
     rm -rf /tmp/project-root
 
 # Copy source code (this will invalidate cache if package.json changed)

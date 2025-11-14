@@ -30,7 +30,7 @@ ENV PYTHONPATH=/app
 # Expose gRPC port
 EXPOSE 50054
 
-# Use entrypoint script
-ENTRYPOINT ["/app/entrypoint.sh"]
+# Use entrypoint script (via sh to handle permission issues with volumes)
+ENTRYPOINT ["sh", "/app/entrypoint.sh"]
 CMD ["python", "main.py"]
 

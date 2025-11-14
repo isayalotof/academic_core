@@ -21,6 +21,7 @@ ENV PYTHONPATH=/app
 
 EXPOSE 50056
 
-ENTRYPOINT ["/app/entrypoint.sh"]
+# Use entrypoint script (via sh to handle permission issues with volumes)
+ENTRYPOINT ["sh", "/app/entrypoint.sh"]
 CMD ["python", "main.py"]
 

@@ -35,7 +35,7 @@ ENV PYTHONPATH=/app
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import grpc; from proto.generated import auth_pb2_grpc, auth_pb2; channel = grpc.insecure_channel('localhost:50052'); stub = auth_pb2_grpc.AuthServiceStub(channel); stub.HealthCheck(auth_pb2.HealthCheckRequest(), timeout=5)" || exit 1
 
-# Use entrypoint script
-ENTRYPOINT ["/app/entrypoint.sh"]
+# Use entrypoint script (via sh to handle permission issues with volumes)
+ENTRYPOINT ["sh", "/app/entrypoint.sh"]
 CMD ["python", "main.py"]
 

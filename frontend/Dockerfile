@@ -8,6 +8,9 @@ COPY package*.json ./
 # Используем npm install, так как package-lock.json может отсутствовать
 RUN npm install
 
+# Fix permissions for node_modules/.bin
+RUN chmod -R +x node_modules/.bin 2>/dev/null || true
+
 # Copy source code
 COPY . .
 

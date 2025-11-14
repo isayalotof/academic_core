@@ -4,8 +4,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: ${API_URL:-http://localhost:8000}
-        VITE_MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:-}
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+        VITE_MAX_BOT_TOKEN: ${VITE_MAX_BOT_TOKEN:-}
     container_name: university-frontend
     ports:
       - "${FRONTEND_PORT:-3001}:80"

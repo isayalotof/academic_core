@@ -17,8 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Copy and set up entrypoint
-COPY entrypoint.sh /app/entrypoint.sh
+# Ensure entrypoint has execute permissions
 RUN chmod +x /app/entrypoint.sh
 
 # Create uploads and proto directories
